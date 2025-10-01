@@ -20,6 +20,19 @@ def jacobi_kernel(A, B, N):
 def kernel(TSTEPS, A, B):
     N = len(A)
     grid = ((N + BLOCK_SIZE - 1) // BLOCK_SIZE, )
-    for t in range(1, TSTEPS):
+
+    graph = torch.cuda.CUDAGraph()
+
+    s = torch.cuda.Stream()
+    s.wait_stream(torch.cuda.current_stream())
+    with torch.cuda.stream(s):
+        graph.capture_begin()
+
         jacobi_kernel[grid](A, B, N)
         jacobi_kernel[grid](B, A, N)
+
+        graph.capture_end()
+    torch.cuda.current_stream().wait_stream(s)
+
+    for t in range(1, TSTEPS):
+        graph.replay()
