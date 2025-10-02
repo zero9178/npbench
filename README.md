@@ -1,3 +1,16 @@
+# DPHPC README Section
+
+## How to add a Triton Kernel
+
+* Find the kernel source you want to rewrite in `npbench/benchmarks`.
+    * There is a directory for each.
+* Within the directory, look at the implementation in whichever framework is most readable to you to figure out what to
+  implement.
+    * I recommend either checking the `numpy` or at `numba` versions which tend to look the most pythonic.
+* Create a copy of an implementation and name the file `<kernel>_triton.py`.
+* Implement the kernel or some no-op for now. Note that the input arguments will be of `torch.Tensor` types!
+* Test and run your kernel by running `python3 run_benchmark.py -f triton -b <kernel>` 
+
 <img src="npbench.svg" alt="npbench-logo" width="100"/>
 <h1>NPBench</h1>
 
@@ -23,6 +36,7 @@ python plot_results.py
 ## Supported Frameworks
 
 Currently, the following frameworks are supported (in alphabetical order):
+
 - CuPy
 - DaCe
 - Dpnp
@@ -32,6 +46,7 @@ Currently, the following frameworks are supported (in alphabetical order):
 - Pythran
 
 Support will also be added shortly for:
+
 - Legate
 
 Please note that the NPBench setup only installs NumPy.
@@ -41,30 +56,37 @@ Below, we provide some tips about installing each of the above frameworks:
 ### CuPy
 
 If you already have CUDA installed, then you can install CuPy with pip:
+
 ```
 python -m pip install cupy-cuda<version>
 ```
+
 For example, if you have CUDA 11.1, then you should install CuPy with:
+
 ```
 python -m pip install cupy-cuda111
 ```
-For more installation options, consult the CuPy [installation guide](https://docs.cupy.dev/en/stable/install.html#install-cupy).
+
+For more installation options, consult the
+CuPy [installation guide](https://docs.cupy.dev/en/stable/install.html#install-cupy).
 
 ### DaCe
 
 DaCe can be install with pip:
+
 ```
 python -m pip install dace
 ```
+
 However, you may want to install the latest version from the [GitHub repository](https://github.com/spcl/dace).
 To run NPBench with DaCe, you have to select as framework (see details below)
 either `dace_cpu` or `dace_gpu`.
 
 ### DPNP
 
-With `dpnp` it is strongly recommended to use `conda` instead of `pip` for its dependency on intel packages. 
-Refer to this 
-[LINK](https://intelpython.github.io/dpnp/quick_start_guide.html#building-for-custom-sycl-targets) to know more 
+With `dpnp` it is strongly recommended to use `conda` instead of `pip` for its dependency on intel packages.
+Refer to this
+[LINK](https://intelpython.github.io/dpnp/quick_start_guide.html#building-for-custom-sycl-targets) to know more
 about building custom SYCL targets or installing `dpnp` package from the `intel` channel.
 
 Unlike the pip installation, with conda it is advisable to try installing all packages at once.
@@ -77,13 +99,15 @@ $ conda activate npb              # Activate the environment
 $ python -m pip install pygount          # Only dependency not distributed with conda
 ```
 
-To run NPBench with dpnp, You must select as framework, either `dpnp_cpu` or `dpnp_gpu`, depending on your hardware. See details below.
+To run NPBench with dpnp, You must select as framework, either `dpnp_cpu` or `dpnp_gpu`, depending on your hardware. See
+details below.
 
 _DPNP only contains a subset of the benchmarks, selected on interest and best-effort basis._
 
 ### Jax
 
 JAX can be installed with pip:
+
 - CPU-only (Linux/macOS/Windows)
     ```sh
     pip install -U jax
@@ -96,39 +120,51 @@ JAX can be installed with pip:
   ```sh
   pip install -U "jax[tpu]" -f https://storage.googleapis.com/jax-releases/libtpu_releases.html
   ```
-For more installation options, please consult the JAX [installation guide](https://jax.readthedocs.io/en/latest/installation.html#installation).
+
+For more installation options, please consult the
+JAX [installation guide](https://jax.readthedocs.io/en/latest/installation.html#installation).
 
 ### Numba
 
 Numba can be installed with pip:
+
 ```
 python -m pip install numba
 ```
+
 If you use Anaconda on an Intel-based machine, then you can install an optimized version of Numba that uses Intel SVML:
+
 ```
 conda install -c numba icc_rt
 ```
-For more installation options, please consult the Numba [installation guide](https://numba.readthedocs.io/en/stable/user/installing.html).
+
+For more installation options, please consult the
+Numba [installation guide](https://numba.readthedocs.io/en/stable/user/installing.html).
 
 ### Pythran
 
-Pythran can be install with pip and Anaconda. For detailed installation options, please consult the Pythran [installation guide](https://pythran.readthedocs.io/en/latest/).
-
+Pythran can be install with pip and Anaconda. For detailed installation options, please consult the
+Pythran [installation guide](https://pythran.readthedocs.io/en/latest/).
 
 ## Running benchmarks
 
 To run individual bencharks, you can use the `run_benchmark` script:
+
 ```
 python run_benchmark.py -b <benchmark> -f <framework>
 ```
+
 The available benchmarks are listed in the `bench_info` folder.
 The supported frameworks are listed in the `framework_info` folder.
 Please use the corresponding JSON filenames.
 For example, to run `adi` with NumPy, execute the following:
+
 ```
 python run_benchmark.py -b adi -f numpy
 ```
+
 You can run all the available benchmarks with a specific framework using the `run_framework` script:
+
 ```
 python run_framework.py -f <framework>
 ```
@@ -141,9 +177,11 @@ in about 10, 100, and 1000ms respectively in a machine with two 16-core Intel Xe
 Gold 6130 processors.
 Exception to that are `atax`, `bicg`, `mlp`, `mvt`, and `trisolv`, which have been
 tuned for 5, 20 and 100ms approximately due to very high memory requirements.
-The `paper` preset is the problem sizes used in the NPBench [paper](http://spcl.inf.ethz.ch/Publications/index.php?pub=412).
+The `paper` preset is the problem sizes used in the
+NPBench [paper](http://spcl.inf.ethz.ch/Publications/index.php?pub=412).
 By default, the provided python scripts execute the benchmarks using the `S` preset.
 You can select a different preset with the optional `-p` flag:
+
 ```
 python run_benchmark.py -b gemm -f numpy -p L
 ```
@@ -152,6 +190,7 @@ python run_benchmark.py -b gemm -f numpy -p L
 
 After running some benchmarks with different frameworks, you can generate plots
 of the speedups and line-count differences (experimental) against NumPy:
+
 ```
 python plot_results.py
 python plot_lines.py
@@ -160,7 +199,8 @@ python plot_lines.py
 ## Customization
 
 It is possible to use the NPBench infrastructure with your own benchmarks and frameworks.
-For more information on this functionality please read the documentation for [benchmarks](benchmarks.md) and [frameworks](frameworks.md).
+For more information on this functionality please read the documentation for [benchmarks](benchmarks.md)
+and [frameworks](frameworks.md).
 
 ## Publication
 
@@ -168,7 +208,7 @@ Please cite NPBench as follows:
 
 ```bibtex
 @inproceedings{
-    npbench,
+npbench,
     author = {Ziogas, Alexandros Nikolaos and Ben-Nun, Tal and Schneider, Timo and Hoefler, Torsten},
     title = {NPBench: A Benchmarking Suite for High-Performance NumPy},
     year = {2021},
@@ -183,7 +223,9 @@ Please cite NPBench as follows:
 
 ## Acknowledgements
 
-NPBench is a collection of scientific Python/NumPy codes from various domains that we adapted from the following sources:
+NPBench is a collection of scientific Python/NumPy codes from various domains that we adapted from the following
+sources:
+
 - Azimuthal Integration from [pyFAI](https://github.com/silx-kit/pyFAI)
 - Navier-Stokes from  [CFD Python](https://github.com/barbagroup/CFDPython)
 - Cython [tutorial](https://cython.readthedocs.io/en/latest/src/userguide/numpy_tutorial.html) for NumPy users
