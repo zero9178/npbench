@@ -13,6 +13,8 @@ def jacobi_kernel(A, B, barrier_flags, N, TSTEPS):
     p_in = A
     p_out = B
 
+    num_programs = tl.num_programs(axis=0)
+
     for t in range(2*TSTEPS-2):
         left   = tl.load(p_in + off - 1, mask=off > 0, other=0.0)
         middle = tl.load(p_in + off)
@@ -21,13 +23,13 @@ def jacobi_kernel(A, B, barrier_flags, N, TSTEPS):
         out = (left + middle + right) * 0.33333
         tl.store(p_out + off, out, mask=mask)
         p_in, p_out = p_out, p_in
-        tl.atomic_add(barrier_flags + t, 1)
-        while tl.load(barrier_flags + t) < tl.num_programs(axis=0):
+        tl.atomic_add(barrier_flags, 1)
+        while tl.load(barrier_flags, volatile=True) < (t+1)*num_programs:
             pass
 
 def kernel(TSTEPS, A, B):
     N = len(A)
     grid = ((N + BLOCK_SIZE - 1) // BLOCK_SIZE, )
-    barrier_flags = torch.zeros((2*TSTEPS-2,), dtype=torch.int32, device='cuda')
+    barrier_flags = torch.zeros(1, device='cuda')
     jacobi_kernel[grid](A, B, barrier_flags, N, TSTEPS)
 
