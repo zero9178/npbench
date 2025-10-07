@@ -1,3 +1,16 @@
+## DPHPC README Section
+
+### How to add a Triton Kernel
+
+- Find the kernel source you want to rewrite in `npbench/benchmarks`.
+    - There is a directory for each.
+- Within the directory, look at the implementation in whichever framework is most readable to you to figure out what to
+  implement.
+    - I recommend either checking the `numpy` or at `numba` versions which tend to look the most pythonic.
+- Create a copy of an implementation and name the file `<kernel>_triton.py`.
+- Implement the kernel or some no-op for now. Note that the input arguments will be of `torch.Tensor` types!
+- Test and run your kernel by running `python3 run_benchmark.py -f triton -b <kernel>` 
+
 <img src="npbench.svg" alt="npbench-logo" width="100"/>
 <h1>NPBench</h1>
 
