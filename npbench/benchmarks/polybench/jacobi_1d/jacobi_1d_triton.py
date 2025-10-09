@@ -2,10 +2,8 @@ import triton
 import torch
 import triton.language as tl
 
-BLOCK_SIZE: tl.constexpr = 1024
-
 @triton.jit
-def jacobi_kernel(A, B, barrier_flags, N, TSTEPS):
+def jacobi_kernel(A, B, barrier_flags, N, TSTEPS, BLOCK_SIZE: tl.constexpr):
     pid = tl.program_id(axis=0)
     off = pid * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)
     mask = (off > 0) & (off < N-1)
@@ -28,8 +26,9 @@ def jacobi_kernel(A, B, barrier_flags, N, TSTEPS):
             pass
 
 def kernel(TSTEPS, A, B):
+    BLOCK_SIZE = 1024
     N = len(A)
     grid = ((N + BLOCK_SIZE - 1) // BLOCK_SIZE, )
     barrier_flags = torch.zeros(1, device='cuda')
-    jacobi_kernel[grid](A, B, barrier_flags, N, TSTEPS)
+    jacobi_kernel[grid](A, B, barrier_flags, N, TSTEPS, BLOCK_SIZE)
 
