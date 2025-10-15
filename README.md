@@ -9,6 +9,7 @@
     - I recommend either checking the `numpy` or at `numba` versions which tend to look the most pythonic.
 - Create a copy of an implementation and name the file `<kernel>_triton.py`.
 - Implement the kernel or some no-op for now. Note that the input arguments will be of `torch.Tensor` types!
+- Make sure that you know which datatypes are contained within the input tensors. GPUs generally work better with single-precision floats (float32). The `-d` argument to `run_benchmark.py` allows you to set the datatype used during data initialization. You might have to adapt `<kernel>.py` to make your kernel support `float32`.
 - Test and run your kernel by running `python3 run_benchmark.py -f triton -b <kernel>` 
 
 <img src="npbench.svg" alt="npbench-logo" width="100"/>

@@ -2,7 +2,7 @@
 import time
 
 from npbench.infrastructure import (Benchmark, Framework, timeout_decorator as tout, utilities as util)
-from typing import Any, Callable, Dict, Sequence, Tuple
+from typing import Any, Callable, Dict, Sequence, Tuple, Optional
 
 
 class Test(object):
@@ -50,17 +50,18 @@ class Test(object):
             assert len(out) == num_return_args + num_output_args, "Number of output arguments does not match."
         return out, timelist
 
-    def run(self, preset: str, validate: bool, repeat: int, timeout: float = 200.0, ignore_errors: bool = True):
+    def run(self, preset: str, validate: bool, repeat: int, timeout: float = 200.0, ignore_errors: bool = True, datatype: Optional[str] = None):
         """ Tests the framework against the benchmark.
         :param preset: The preset to use for testing (S, M, L, paper).
         :param validate: If true, it validates the output against NumPy.
         :param repeat: The number of repeatitions.
         """
-        print("***** Testing {f} with {b} on the {p} dataset *****".format(b=self.bench.bname,
+        print("***** Testing {f} with {b} on the {p} dataset, datatype {d} *****".format(b=self.bench.bname,
                                                                            f=self.frmwrk.info["full_name"],
-                                                                           p=preset))
+                                                                           p=preset,
+                                                                           d=datatype if datatype is not None else "default"))
 
-        bdata = self.bench.get_data(preset)
+        bdata = self.bench.get_data(preset, datatype)
 
         # Run NumPy for validation
         if validate and self.frmwrk.fname != "numpy" and self.numpy:
