@@ -15,7 +15,8 @@ def generate_config():
 
 
 @triton.autotune(configs=generate_config(),
-                 key=['N', 'M']
+                 key=['N', 'M'],
+                 cache_results=True
                  )
 @triton.jit()
 def _kernel(alpha, beta,
@@ -23,28 +24,31 @@ def _kernel(alpha, beta,
             A,  # (N, M)
             BLOCK_SIZE: tl.constexpr, N: tl.constexpr, M: tl.constexpr):
     i = tl.program_id(axis=0)
-    for j in range(i + 1):
-        c_ptr = C + i * N + j
+    j = tl.program_id(axis=1)
+    if j >= i + 1:
+        return
 
-        # Perform a parallel reduction over A[i, k] and A[j, k] simultaneously.
-        # The parallelism is introduced similarly as we did in ASL:
-        # 'BLOCK_SIZE' many accumulators are used that we sum up at the end.
-        s = tl.zeros((BLOCK_SIZE,), c_ptr.dtype.element_ty)
-        for k in range(tl.cdiv(M, BLOCK_SIZE)):
-            a_column = k * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)
-            mask = a_column < M
-            # A[j, k:k+BLOCK_SIZE]
-            a_tensor = tl.load(A + j * M + a_column, mask=mask)
-            # A[i, k:k+BLOCK_SIZE]
-            a_diag = tl.load(A + i * M + a_column, mask=mask)
-            s += alpha * a_tensor * a_diag
-        # Sum up the entire tensor into a single scalar.
-        s = tl.sum(s)
+    c_ptr = C + i * N + j
 
-        c_elem = tl.load(c_ptr)
-        c_elem *= beta
-        c_elem += s
-        tl.store(c_ptr, c_elem)
+    # Perform a parallel reduction over A[i, k] and A[j, k] simultaneously.
+    # The parallelism is introduced similarly as we did in ASL:
+    # 'BLOCK_SIZE' many accumulators are used that we sum up at the end.
+    s = tl.zeros((BLOCK_SIZE,), c_ptr.dtype.element_ty)
+    for k in range(tl.cdiv(M, BLOCK_SIZE)):
+        a_column = k * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)
+        mask = a_column < M
+        # A[j, k:k+BLOCK_SIZE]
+        a_tensor = tl.load(A + j * M + a_column, mask=mask)
+        # A[i, k:k+BLOCK_SIZE]
+        a_diag = tl.load(A + i * M + a_column, mask=mask)
+        s += alpha * a_tensor * a_diag
+    # Sum up the entire tensor into a single scalar.
+    s = tl.sum(s)
+
+    c_elem = tl.load(c_ptr)
+    c_elem *= beta
+    c_elem += s
+    tl.store(c_ptr, c_elem)
 
 
 def kernel(alpha, beta, C, A):
@@ -62,11 +66,12 @@ def kernel(alpha, beta, C, A):
 
             C[i, j] += s
 
-    We perform the grid parallelization across the 'i' loop and perform tiling over the 'k' loop for parallel reduction.
+    We perform the grid parallelization across the 'i' and 'j' loops and perform tiling over the 'k' loop for parallel
+    reduction.
     The latter enables an optimization in the GPU where a single warp (ie 32 threads!) are scheduled to implement
     the reduction and finally perform a warp-level reduction instruction. This theoretically provides full utilization
     of the SM and parallelism across the grid.
     """
 
     N = A.shape[0]
-    _kernel[(N,)](alpha, beta, C, A, N=N, M=A.shape[1])
+    _kernel[(N,N)](alpha, beta, C, A, N=N, M=A.shape[1])
