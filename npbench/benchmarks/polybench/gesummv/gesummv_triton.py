@@ -29,6 +29,7 @@ def _kernel(alpha, beta,
             N: tl.constexpr,
             BLOCK_SIZE_N: tl.constexpr,
             BLOCK_SIZE_K: tl.constexpr,
+            dot_impl: tl.constexpr
             ):
     zero = tl.zeros((BLOCK_SIZE_K,), out.dtype.element_ty)
     i = tl.program_id(axis=0)
@@ -46,7 +47,6 @@ def _kernel(alpha, beta,
     x = tl.load(X + column, mask=column < N, other=zero)
     x = tl.expand_dims(x, axis=0)
 
-    # Note: use tl.dot when implementing for anything that isn't fp64.
     # Perform the reduction of the K dimension. A vector corresponding to an N tile remains.
     a_sum = tl.sum(a * x, axis=1)
     b_sum = tl.sum(b * x, axis=1)
@@ -78,5 +78,5 @@ def kernel(alpha, beta,
 
     N = x.shape[0]
     grid = lambda meta: (triton.cdiv(N, meta['BLOCK_SIZE_N']), triton.cdiv(N, meta['BLOCK_SIZE_K']))
-    _kernel[grid](alpha, beta, A, B, x, out, N)
+    _kernel[grid](float(alpha), float(beta), A, B, x, out, N)
     return out
