@@ -1,14 +1,46 @@
-# 
-
 import triton
 import triton.language as tl
 import torch
+
+@triton.autotune(
+    configs=[
+        triton.Config({'BLOCK_SIZE': 128}, num_stages=4,
+                      num_warps=4),
+        # triton.Config({'BLOCK_SIZE': 128}, num_stages=3,
+        #               num_warps=8),
+        # triton.Config({'BLOCK_SIZE': 64}, num_stages=4,
+        #               num_warps=4),
+        # triton.Config({'BLOCK_SIZE': 128}, num_stages=4,
+        #               num_warps=4),
+        # triton.Config({'BLOCK_SIZE': 128}, num_stages=4,
+        #               num_warps=4),
+        # triton.Config({'BLOCK_SIZE': 64}, num_stages=4,
+        #               num_warps=4),
+        # triton.Config({'BLOCK_SIZE': 128}, num_stages=4,
+        #               num_warps=4),
+        # triton.Config({'BLOCK_SIZE': 64}, num_stages=5,
+        #               num_warps=2),
+        # triton.Config({'BLOCK_SIZE': 32}, num_stages=5,
+        #               num_warps=2),
+        # triton.Config({'BLOCK_SIZE': 128,}, num_stages=3,
+        #               num_warps=8),
+        # triton.Config({'BLOCK_SIZE': 256}, num_stages=3,
+        #               num_warps=8),
+        # triton.Config({'BLOCK_SIZE': 256}, num_stages=4,
+        #               num_warps=4),
+        # triton.Config({'BLOCK_SIZE': 64}, num_stages=4,
+        #               num_warps=4),
+        # triton.Config({'BLOCK_SIZE': 32}, num_stages=4,
+        #               num_warps=4),
+    ],
+    key=["N"]
+)
 
 @triton.jit
 def jacobi2d_step(src_ptr, dst_ptr,
                   N: tl.int32,
                   stride0: tl.int32, stride1: tl.int32,
-                  BLOCK: tl.constexpr):
+                  BLOCK_SIZE: tl.constexpr):
 
     pid_x = tl.program_id(0)  # tiles along rows (i)
     pid_y = tl.program_id(1)  # tiles along cols (j)
@@ -17,8 +49,8 @@ def jacobi2d_step(src_ptr, dst_ptr,
     num_y = tl.num_programs(axis=1)
 
     # Compute global indices of the block
-    ii = pid_x * BLOCK + tl.arange(0, BLOCK)[:, None]   # (BLOCK, 1) - row vector
-    jj = pid_y * BLOCK + tl.arange(0, BLOCK)[None, :]   # (1, BLOCK) - col vector
+    ii = pid_x * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)[:, None]   # (BLOCK, 1) - row vector
+    jj = pid_y * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)[None, :]   # (1, BLOCK) - col vector
 
     # work only on interior: i in [1, N-2], j in [1, N-2]
     i = ii + 1
@@ -37,7 +69,7 @@ def jacobi2d_step(src_ptr, dst_ptr,
     tl.store(dst_ptr + base, out, mask=in_bounds)
 
 
-def kernel(TSTEPS: int, A: torch.Tensor, B: torch.Tensor, block: int = 128):
+def kernel(TSTEPS: int, A: torch.Tensor, B: torch.Tensor):
     assert A.shape == B.shape and A.ndim == 2 and A.shape[0] == A.shape[1]
     # Force dtype + contiguity to match reference
     if A.dtype != torch.float64:
@@ -51,14 +83,13 @@ def kernel(TSTEPS: int, A: torch.Tensor, B: torch.Tensor, block: int = 128):
 
     # Triton expects strides in elements, not bytes
     s0, s1 = A.stride()  # row-major: (N, 1) for contiguous
-    grid = (triton.cdiv(N-2, block), triton.cdiv(N-2, block))
+    grid = lambda meta: (
+    triton.cdiv(N, meta['BLOCK_SIZE']),  # programs along x (columns)
+    triton.cdiv(N, meta['BLOCK_SIZE']),  # programs along y (rows)
+    )
 
     for _ in range(TSTEPS-1):
         jacobi2d_step[grid](
-            A, B, N, s0, s1,
-            BLOCK=block
-        )
+            A, B, N, s0, s1)
         jacobi2d_step[grid](
-            B, A, N, s0, s1,
-            BLOCK=block
-        )
+            B, A, N, s0, s1)
