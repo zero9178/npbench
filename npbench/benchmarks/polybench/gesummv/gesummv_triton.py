@@ -28,8 +28,7 @@ def _kernel(alpha, beta,
             out,  # (N, ),
             N: tl.constexpr,
             BLOCK_SIZE_N: tl.constexpr,
-            BLOCK_SIZE_K: tl.constexpr,
-            dot_impl: tl.constexpr
+            BLOCK_SIZE_K: tl.constexpr
             ):
     zero = tl.zeros((BLOCK_SIZE_K,), out.dtype.element_ty)
     i = tl.program_id(axis=0)
