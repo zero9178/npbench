@@ -4,6 +4,8 @@ import torch
 import triton
 import triton.language as tl
 
+from npbench.infrastructure.triton_utilities import get_2d_tile_offsets
+
 
 def generate_config():
     """
@@ -34,24 +36,22 @@ def _kernel(alpha, beta,
     i = tl.program_id(axis=0)
     j = tl.program_id(axis=1)
 
-    row = (i * BLOCK_SIZE_N) + tl.arange(0, BLOCK_SIZE_N)
-    row = tl.expand_dims(row, axis=1)
-
-    column = (j * BLOCK_SIZE_K) + tl.arange(0, BLOCK_SIZE_K)
-    column = tl.expand_dims(column, axis=0)
-    a = tl.load(A + N * row + column, (column < N) & (row < N))
-    b = tl.load(B + N * row + column, (column < N) & (row < N))
-
-    column = (j * BLOCK_SIZE_K) + tl.arange(0, BLOCK_SIZE_K)
-    x = tl.load(X + column, mask=column < N, other=zero)
-    x = tl.expand_dims(x, axis=0)
+    tile, mask, rows, columns = get_2d_tile_offsets(x=j * BLOCK_SIZE_K,
+                                                    y=i * BLOCK_SIZE_N,
+                                                    tile_width=BLOCK_SIZE_K,
+                                                    tile_height=BLOCK_SIZE_N,
+                                                    matrix_width=N,
+                                                    matrix_height=N)
+    a = tl.load(A + tile, mask)
+    b = tl.load(B + tile, mask)
+    x = tl.load(X + columns, mask=columns < N, other=zero)[None, :]
 
     # Perform the reduction of the K dimension. A vector corresponding to an N tile remains.
     a_sum = tl.sum(a * x, axis=1)
     b_sum = tl.sum(b * x, axis=1)
 
     value = alpha * a_sum + beta * b_sum
-    tl.atomic_add(out + tl.reshape(row, (BLOCK_SIZE_N,)), value, sem="release")
+    tl.atomic_add(out + rows, value, sem="release", mask=rows < N)
 
 
 def kernel(alpha, beta,

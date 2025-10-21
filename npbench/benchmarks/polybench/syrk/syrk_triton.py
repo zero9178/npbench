@@ -3,6 +3,8 @@ import itertools
 import triton
 import triton.language as tl
 
+from npbench.infrastructure.triton_utilities import get_1d_tile_offsets
+
 
 def generate_config():
     """
@@ -35,12 +37,12 @@ def _kernel(alpha, beta,
     # 'BLOCK_SIZE' many accumulators are used that we sum up at the end.
     s = tl.zeros((BLOCK_SIZE,), c_ptr.dtype.element_ty)
     for k in range(tl.cdiv(M, BLOCK_SIZE)):
-        a_column = k * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)
-        mask = a_column < M
+        tile, mask = get_1d_tile_offsets(k * BLOCK_SIZE, BLOCK_SIZE, M)
+
         # A[j, k:k+BLOCK_SIZE]
-        a_tensor = tl.load(A + j * M + a_column, mask=mask)
+        a_tensor = tl.load(A + j * M + tile, mask=mask)
         # A[i, k:k+BLOCK_SIZE]
-        a_diag = tl.load(A + i * M + a_column, mask=mask)
+        a_diag = tl.load(A + i * M + tile, mask=mask)
         s += alpha * a_tensor * a_diag
     # Sum up the entire tensor into a single scalar.
     s = tl.sum(s)
@@ -74,4 +76,4 @@ def kernel(alpha, beta, C, A):
     """
 
     N = A.shape[0]
-    _kernel[(N,N)](alpha, beta, C, A, N=N, M=A.shape[1])
+    _kernel[(N, N)](alpha, beta, C, A, N=N, M=A.shape[1])
