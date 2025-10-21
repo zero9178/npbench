@@ -3,6 +3,7 @@ import itertools
 import torch
 import triton
 import triton.language as tl
+from npbench.infrastructure.triton_utilities import get_2d_tile_offsets
 
 def generate_config():
     return [
@@ -29,11 +30,15 @@ def _kernel(
     i = tl.program_id(axis=0)
     j = tl.program_id(axis=1)
 
-    row = (i * BLOCK_SIZE_M) + tl.arange(0, BLOCK_SIZE_M)
-    column = (j * BLOCK_SIZE_N) + tl.arange(0, BLOCK_SIZE_N)
-    a = tl.load(
-        A + N * row[:, None] + column[None, :],
-        mask=(column[None, :] < N) & (row[:, None] < M))
+    tile, mask, row, column = get_2d_tile_offsets(
+        x=j * BLOCK_SIZE_N,
+        y=i * BLOCK_SIZE_M,
+        tile_width=BLOCK_SIZE_N,
+        tile_height=BLOCK_SIZE_M,
+        matrix_width=N,
+        matrix_height=M,
+    )
+    a = tl.load(A + tile, mask)
     r = tl.load(R + row, mask=row < M, other=0.0)
     p = tl.load(P + column, mask=column < N, other=0.0)
 
