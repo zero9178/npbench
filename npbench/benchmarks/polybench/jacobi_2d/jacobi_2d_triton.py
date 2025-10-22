@@ -23,9 +23,6 @@ def jacobi2d_step(src_ptr, dst_ptr,
     pid_x = tl.program_id(0)  # tiles along rows (i)
     pid_y = tl.program_id(1)  # tiles along cols (j)
 
-    num_x = tl.num_programs(axis=0)
-    num_y = tl.num_programs(axis=1)
-
     # Compute global indices of the block
     ii = pid_x * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)[:, None]   # (BLOCK, 1) - row vector
     jj = pid_y * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)[None, :]   # (1, BLOCK) - col vector
