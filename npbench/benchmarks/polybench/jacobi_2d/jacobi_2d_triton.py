@@ -1,40 +1,18 @@
+import itertools
 import triton
 import triton.language as tl
 import torch
 
-@triton.autotune(
-    configs=[
-        triton.Config({'BLOCK_SIZE': 128}, num_stages=4,
-                      num_warps=4),
-        # triton.Config({'BLOCK_SIZE': 128}, num_stages=3,
-        #               num_warps=8),
-        # triton.Config({'BLOCK_SIZE': 64}, num_stages=4,
-        #               num_warps=4),
-        # triton.Config({'BLOCK_SIZE': 128}, num_stages=4,
-        #               num_warps=4),
-        # triton.Config({'BLOCK_SIZE': 128}, num_stages=4,
-        #               num_warps=4),
-        # triton.Config({'BLOCK_SIZE': 64}, num_stages=4,
-        #               num_warps=4),
-        # triton.Config({'BLOCK_SIZE': 128}, num_stages=4,
-        #               num_warps=4),
-        # triton.Config({'BLOCK_SIZE': 64}, num_stages=5,
-        #               num_warps=2),
-        # triton.Config({'BLOCK_SIZE': 32}, num_stages=5,
-        #               num_warps=2),
-        # triton.Config({'BLOCK_SIZE': 128,}, num_stages=3,
-        #               num_warps=8),
-        # triton.Config({'BLOCK_SIZE': 256}, num_stages=3,
-        #               num_warps=8),
-        # triton.Config({'BLOCK_SIZE': 256}, num_stages=4,
-        #               num_warps=4),
-        # triton.Config({'BLOCK_SIZE': 64}, num_stages=4,
-        #               num_warps=4),
-        # triton.Config({'BLOCK_SIZE': 32}, num_stages=4,
-        #               num_warps=4),
-    ],
-    key=["N"]
-)
+def generate_config():
+    return [
+        triton.Config(kwargs={"BLOCK_SIZE": n}, num_warps=w)
+        for n, w in itertools.product(
+            [8, 16, 32, 64, 128], [1, 2, 4, 8]
+        )
+        if n != 128
+    ]
+
+@triton.autotune(configs=generate_config(), key=["N"], cache_results=True)
 
 @triton.jit
 def jacobi2d_step(src_ptr, dst_ptr,
