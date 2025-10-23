@@ -59,7 +59,7 @@ def _add_trace_to_matrix(A, N, trace, DTYPE: tl.constexpr,
 
     pid_n = tl.program_id(axis=0)
     pid_m = tl.program_id(axis=1)
-    rows = pid_n * BLOCK_SIZE_M + tl.arange(0, BLOCK_SIZE_N)
+    rows = pid_n * BLOCK_SIZE_M + tl.arange(0, BLOCK_SIZE_M)
     cols = pid_m * BLOCK_SIZE_N + tl.arange(0, BLOCK_SIZE_N)
     row_mask = rows < N
     col_mask = cols < N
