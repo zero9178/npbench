@@ -121,8 +121,9 @@ def kernel(alpha, beta, A: torch.Tensor, u1, v1, u2, v2, w, x, y, z):
     # x += beta * y @ A + z
     x_out = x.new_zeros(N)
     compute_x_kernel[grid_1d](beta, A, y, z, x, x_out, N, DTYPE=DTYPE)
-    torch.cuda.synchronize()
     x.copy_(x_out)
-
+    
     # w += alpha * A @ x
-    compute_w_kernel[grid_1d](alpha, A, x_out, w, N, DTYPE=DTYPE)
+    compute_w_kernel[grid_1d](alpha, A, x, w, N, DTYPE=DTYPE)
+    
+   
