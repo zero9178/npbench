@@ -10,6 +10,51 @@ import torch
 import triton
 import triton.language as tl
 
+
+@triton.jit
+def get_2d_tile_offsets(x: tl.int32,
+                        y: tl.int32,
+                        tile_width: tl.constexpr,
+                        tile_height: tl.constexpr,
+                        matrix_width: tl.int32,
+                        matrix_height: tl.int32) \
+        -> tuple[tl.block_type, tl.block_type, tl.block_type, tl.block_type]:
+    """
+    Generates a tile of offsets that when added to a matrix of width 'matrix_width' and height 'matrix_height',
+    yields a tile of width 'tile_width' and height 'tile_height' positioned at 'x' and 'y' within the matrix.
+
+    All coordinates and dimensions are in 'number of elements' unit.
+    Assumes a fully contiguous matrix.
+
+    Returns:
+        - The offset tile of shape (tile_height, tile_width).
+        - A mask that can be used when loading and storing the tile to stay within the bounds of 'matrix_width' and
+          'matrix_height'.
+        - A vector containing the indices of all rows in the offset tile.
+        - A vector containing the indices of all columns in the offset tile.
+    """
+    columns = x + tl.arange(0, tile_width)
+    rows = y + tl.arange(0, tile_height)
+    rows_2d = rows[:, None]
+    columns_2d = columns[None, :]
+    return matrix_width * rows_2d + columns_2d, (columns_2d < matrix_width) & (rows_2d < matrix_height), rows, columns
+
+
+@triton.jit
+def get_1d_tile_offsets(x, tile_width, vector_width):
+    """
+    Generates a tile of offsets that when added to a vector of length 'vector_width', yields 'tile_width' many elements
+    at the offset 'x'.
+    Additionally, yields a mask denoting whether every element in the offset tile is within bounds of the vector.
+    """
+    tile, mask, rows, columns = get_2d_tile_offsets(x=x, y=0,
+                                                    tile_width=tile_width,
+                                                    tile_height=1,
+                                                    matrix_width=vector_width,
+                                                    matrix_height=1)
+    return tl.reshape(tile, (tile_width,)), tl.reshape(mask, (tile_width,))
+
+
 @triton.autotune(
     configs=[
         # triton.Config({'BLOCK_SIZE_M': 32, 'BLOCK_SIZE_N': 16, 'BLOCK_SIZE_K': 16}),
@@ -21,12 +66,12 @@ import triton.language as tl
 )
 @triton.jit
 def matmul_kernel_float64(
-    a_ptr, b_ptr, c_ptr,
-    M, N, K,
-    stride_am, stride_ak,
-    stride_bk, stride_bn,
-    stride_cm, stride_cn,
-    BLOCK_SIZE_M: tl.constexpr, BLOCK_SIZE_N: tl.constexpr, BLOCK_SIZE_K: tl.constexpr,
+        a_ptr, b_ptr, c_ptr,
+        M, N, K,
+        stride_am, stride_ak,
+        stride_bk, stride_bn,
+        stride_cm, stride_cn,
+        BLOCK_SIZE_M: tl.constexpr, BLOCK_SIZE_N: tl.constexpr, BLOCK_SIZE_K: tl.constexpr,
 ):
     """
     Triton kernel for float64 matrix multiplication.
@@ -59,6 +104,7 @@ def matmul_kernel_float64(
     c_mask = (offs_cm[:, None] < M) & (offs_cn[None, :] < N)
     tl.store(c_ptrs, accumulator, mask=c_mask)
 
+
 def matmul_float64(a: torch.Tensor, b: torch.Tensor):
     """
     Wrapper function for the float64 matrix multiplication kernel.
@@ -82,8 +128,9 @@ def matmul_float64(a: torch.Tensor, b: torch.Tensor):
     )
     return c
 
+
 @triton.autotune(
-        configs=[
+    configs=[
         triton.Config({'BLOCK_SIZE_M': 64, 'BLOCK_SIZE_N': 64, 'BLOCK_SIZE_K': 64, 'GROUP_SIZE_M': 8}, num_stages=4,
                       num_warps=4),
         # triton.Config({'BLOCK_SIZE_M': 128, 'BLOCK_SIZE_N': 256, 'BLOCK_SIZE_K': 64, 'GROUP_SIZE_M': 8}, num_stages=3,
@@ -212,6 +259,7 @@ def matmul_kernel_float32(
     c_mask = (offs_cm[:, None] < M) & (offs_cn[None, :] < N)
     tl.store(c_ptrs, c, mask=c_mask)
 
+
 def matmul_float32(a: torch.Tensor, b: torch.Tensor, activation=""):
     # Check constraints.
     assert a.shape[1] == b.shape[0], "Incompatible dimensions"
@@ -221,7 +269,7 @@ def matmul_float32(a: torch.Tensor, b: torch.Tensor, activation=""):
     # Allocates output.
     c = torch.empty((M, N), device=a.device, dtype=torch.float32)
     # 1D launch kernel where each block gets its own program.
-    grid = lambda META: (triton.cdiv(M, META['BLOCK_SIZE_M']) * triton.cdiv(N, META['BLOCK_SIZE_N']), )
+    grid = lambda META: (triton.cdiv(M, META['BLOCK_SIZE_M']) * triton.cdiv(N, META['BLOCK_SIZE_N']),)
     matmul_kernel_float32[grid](
         a, b, c,  #
         M, N, K,  #
