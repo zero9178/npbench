@@ -18,7 +18,7 @@ def generate_config():
 
 @triton.autotune(configs=generate_config(), key=["M", "N"], cache_results=True)
 @triton.jit
-def _kernel(A, B, B_out, M, N, DTYPE: tl.constexpr,
+def _kernel(alpha, A, B, B_out, M, N, DTYPE: tl.constexpr,
             BLOCK_SIZE_N : tl.constexpr, 
             BLOCK_SIZE_K : tl.constexpr):
 
@@ -29,7 +29,7 @@ def _kernel(A, B, B_out, M, N, DTYPE: tl.constexpr,
     if i >= M:  
         return
 
-    j_col_offs = pid_j * BLOCK_SIZE_N + tl.arange(0, BLOCK_SIZE_N)       # (BLOCK_SIZE_N,)
+    j_col_offs = pid_j * BLOCK_SIZE_N + tl.arange(0, BLOCK_SIZE_N) # (BLOCK_SIZE_N,)
     j_mask = j_col_offs < N
 
     acc = tl.zeros((BLOCK_SIZE_N,), dtype=DTYPE)
@@ -51,13 +51,9 @@ def _kernel(A, B, B_out, M, N, DTYPE: tl.constexpr,
         acc += tl.sum(b_tile * a_vec[:, None], axis=0)
 
     b_row = tl.load(B + i * N + j_col_offs, mask=j_mask, other=0.0)
-    b_row = b_row + acc
+    b_row = (b_row + acc) * alpha
     tl.store(B_out + i * N + j_col_offs, b_row, mask=j_mask)
 
-    # # write back row i
-    # b_row = tl.load(B + i * N + j_col_offs, mask=j_mask, other=0.0)
-    # b_row = (b_row + acc) * alpha
-    # tl.store(B + i * N + j_col_offs, b_row, mask=j_mask)
 
 def kernel(alpha, A, B):
     # Matrix shapes:
@@ -91,20 +87,12 @@ def kernel(alpha, A, B):
 
 
     # Into this kernel:
-    # for i in range(M):
-    #     for j in range(N):
     #         acc = 0.0
     #         for k in range(i+1, M):
     #             acc += A[k, i] * B[k, j]
     #         B[i, j] += acc
     # B *= alpha
 
-    B_out = torch.empty_like(B)  # write-only target
-
-    _kernel[grid](A, B, B_out, M, N, DTYPE)
-
-    # scale at the end in the same dtype/device
-    B_out *= B_out.new_tensor(alpha)
-
-    # if the API requires in-place:
+    B_out = torch.empty_like(B) 
+    _kernel[grid](alpha, A, B, B_out, M, N, DTYPE)
     B.copy_(B_out)
