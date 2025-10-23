@@ -4,7 +4,7 @@ import triton.language as tl
 import itertools
 from triton.language.extra import libdevice
 
-def generate_config_1d():
+def generate_config():
     base = [
         (64, 4, 3),
         (128, 4, 3),
@@ -16,7 +16,7 @@ def generate_config_1d():
                 num_warps=w, num_stages=s)
             for (n, w, s) in base]
 
-@triton.autotune(configs=generate_config_1d(), key=["N"], cache_results=True)
+@triton.autotune(configs=generate_config(), key=["N"], cache_results=True)
 @triton.jit
 def _trace_of_matrix(A, N, trace, DTYPE: tl.constexpr,
             BLOCK_SIZE_N : tl.constexpr):
@@ -39,27 +39,15 @@ def _trace_of_matrix(A, N, trace, DTYPE: tl.constexpr,
     sum = tl.sum(acc)
     tl.atomic_add(trace, sum)
 
-def generate_config_2d():
-    base = [
-        (64, 32, 4, 3),
-        (128, 32, 4, 3),
-        (64, 64, 4, 3),
-        (128, 128, 8, 4),  
-    ]
-    return [triton.Config(
-                kwargs={"BLOCK_SIZE_N": n, "BLOCK_SIZE_M": m},
-                num_warps=w, num_stages=s)
-            for (n, m, w, s) in base]
 
-@triton.autotune(configs=generate_config_2d(), key=["N", "N"], cache_results=True)
+@triton.autotune(configs=generate_config(), key=["N"], cache_results=True)
 @triton.jit
 def _add_trace_to_matrix(A, N, trace, DTYPE: tl.constexpr,
-            BLOCK_SIZE_M : tl.constexpr,
             BLOCK_SIZE_N : tl.constexpr):
 
     pid_n = tl.program_id(axis=0)
     pid_m = tl.program_id(axis=1)
-    rows = pid_n * BLOCK_SIZE_M + tl.arange(0, BLOCK_SIZE_M)
+    rows = pid_n * BLOCK_SIZE_N + tl.arange(0, BLOCK_SIZE_N)
     cols = pid_m * BLOCK_SIZE_N + tl.arange(0, BLOCK_SIZE_N)
     row_mask = rows < N
     col_mask = cols < N
@@ -79,11 +67,8 @@ def go_fast(A):
     DTYPE = tl.float32 if dtype == torch.float32 else tl.float64
 
     grid_1d = lambda meta: (triton.cdiv(N, meta["BLOCK_SIZE_N"]),)
-    grid_2d = lambda meta: (triton.cdiv(N, meta["BLOCK_SIZE_M"]),
+    grid_2d = lambda meta: (triton.cdiv(N, meta["BLOCK_SIZE_N"]),
                             triton.cdiv(N, meta["BLOCK_SIZE_N"]))
     trace = torch.zeros(1, dtype=A.dtype, device=A.device)
     _trace_of_matrix[grid_1d](A, N, trace, DTYPE)
     _add_trace_to_matrix[grid_2d](A, N, trace, DTYPE)
-
-
-
