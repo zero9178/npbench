@@ -15,11 +15,6 @@ def generate_config():
                 num_warps=w, num_stages=s)
             for (n, w, s) in base]
 
-    trace_out += tl.sum(acc, axis = 0)
-
-    A = A + trace_out
-    return A
-
 @triton.autotune(configs=generate_config(), key=["N"], cache_results=True)
 @triton.jit
 def _trace_of_matrix(A, N, trace, DTYPE: tl.constexpr,
