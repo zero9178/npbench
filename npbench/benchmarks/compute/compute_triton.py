@@ -32,15 +32,15 @@ def _kernel(array_1, array_2, a, b, c, N, arr_out, DTYPE: tl.constexpr,
     offs = pid_n * BLOCK_SIZE_N + tl.arange(0, BLOCK_SIZE_N)
     row_mask = offs < N
 
-    arr1_vec = tl.load(array_1 + offs, mask=row_mask, other=0.0)
-    arr2_vec = tl.load(array_2 + offs, mask=row_mask, other=0.0)
+    arr1_vec = tl.load(array_1 + offs, mask=row_mask, other=0)
+    arr2_vec = tl.load(array_2 + offs, mask=row_mask, other=0)
 
     # Clipping using masks: np.clip(array_1, 2, 10)
     mask_two = arr1_vec < 2 # true, true, false, ...
     mask_ten = arr1_vec > 10 # false, false, ... true
 
-    two_vec = tl.full((BLOCK_SIZE_N,), 2.0, dtype=DTYPE)
-    ten_vec = tl.full((BLOCK_SIZE_N,), 10.0, dtype=DTYPE)
+    two_vec = tl.full((BLOCK_SIZE_N,), 2, dtype=DTYPE)
+    ten_vec = tl.full((BLOCK_SIZE_N,), 10, dtype=DTYPE)
     clipped_arr1 = tl.where(mask_two, two_vec, arr1_vec)
     clipped_arr1 = tl.where(mask_ten, ten_vec, clipped_arr1)
 
@@ -64,9 +64,9 @@ def compute(array_1, array_2, a, b, c):
 
     # force type torch.float32 on arrays
     dtype = array_1.dtype
-    if dtype not in (torch.float32, torch.float64):
-        dtype = torch.float32
-    DTYPE = tl.float32 if dtype == torch.float32 else tl.float64
+    if dtype not in (torch.int32, torch.int64):
+        dtype = torch.int64
+    DTYPE = tl.int64 if dtype == torch.int64 else tl.int32
 
     # Assume array_1, array_2, a, b, c have the same dtype
     # convert to dtype and make contiguous
@@ -75,9 +75,9 @@ def compute(array_1, array_2, a, b, c):
     arr_out = torch.empty_like(a1)
 
     # kill numpy.* scalars -> python scalars
-    a = float(_as_py(a))
-    b = float(_as_py(b))
-    c = float(_as_py(c))
+    a = int(_as_py(a))
+    b = int(_as_py(b))
+    c = int(_as_py(c))
 
     grid = lambda meta: (triton.cdiv(N, meta["BLOCK_SIZE_N"]),)
     _kernel[grid](a1, a2, a, b, c, N, arr_out, DTYPE)
