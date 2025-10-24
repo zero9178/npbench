@@ -2,6 +2,7 @@ import torch
 import triton
 import triton.language as tl
 import itertools
+from triton.language.extra import libdevice
 
 def generate_config():
     base = [
@@ -34,9 +35,13 @@ def _trace_of_matrix(A, N, trace, DTYPE: tl.constexpr,
     a_diag = tl.load(A + identity_offs * N + identity_offs, mask=mask_identity, other=0.0)
 
     # Compute tanh
+<<<<<<< HEAD
     val1 = tl.exp(a_diag)
     val2 = tl.exp(-a_diag)
     acc += (val1 - val2) / (val1 + val2)
+=======
+    acc += libdevice.tanh(a_diag)
+>>>>>>> main
     sum = tl.sum(acc)
     tl.atomic_add(trace, sum)
 
@@ -73,6 +78,9 @@ def go_fast(A):
     trace = torch.zeros(1, dtype=A.dtype, device=A.device)
     _trace_of_matrix[grid_1d](A, N, trace, DTYPE)
     _add_trace_to_matrix[grid_2d](A, N, trace, DTYPE)
+<<<<<<< HEAD
 
 
 
+=======
+>>>>>>> main
