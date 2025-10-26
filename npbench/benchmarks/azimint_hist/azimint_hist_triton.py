@@ -86,6 +86,11 @@ def azimint_div_kernel(
 
 
 def azimint_hist(data: torch.Tensor, radius: torch.Tensor, npt: int):
+    """
+    histu = np.histogram(radius, npt)[0]
+    histw = np.histogram(radius, npt, weights=data)[0]
+    return histw / histu
+    """
     rmin = radius.min().to(data.dtype)
     rmax = radius.max().to(data.dtype)
 
