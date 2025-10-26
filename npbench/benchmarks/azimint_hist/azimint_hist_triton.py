@@ -86,8 +86,8 @@ def azimint_div_kernel(
 
 
 def azimint_hist(data: torch.Tensor, radius: torch.Tensor, npt: int):
-    rmin = radius.min().to(torch.float64)
-    rmax = radius.max().to(torch.float64)
+    rmin = radius.min().to(data.dtype)
+    rmax = radius.max().to(data.dtype)
 
     histw = torch.zeros(npt, dtype=data.dtype, device=data.device)
     histu = torch.zeros(npt, dtype=data.dtype, device=data.device)
