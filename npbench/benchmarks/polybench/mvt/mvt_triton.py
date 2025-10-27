@@ -1,7 +1,24 @@
+import itertools
+
 import torch
 import triton
 import triton.language as tl
 
+def generate_config():
+    """
+    Generates many config instances for the purpose of auto-tuning.
+    'num_warps' is especially useful for performance when reduction is involved as it may enable or disable certain
+    cross-warp optimizations.
+    """
+    return [triton.Config(kwargs={'BLOCK_SIZE': b}, num_warps=w) for b, w in
+            itertools.product([8, 16, 32, 64, 128], [1, 2, 4, 8])
+            if b != 128]
+
+
+@triton.autotune(configs=generate_config(),
+                 key=['N'],
+                 cache_results=True
+                 )
 @triton.jit
 def _mvt_kernel(
     x1_ptr,  
@@ -55,6 +72,5 @@ def kernel(x1:torch.Tensor, x2:torch.Tensor, y_1:torch.Tensor, y_2:torch.Tensor,
     N, N = A.shape
     # Grid: one program per i value
     grid = (N,)
-    BLOCK_SIZE = 64
 
-    _mvt_kernel[grid](x1, x2, y_1, y_2, A, N, BLOCK_SIZE = tl.constexpr(BLOCK_SIZE), DTYPE = tl.constexpr(DTYPE))
+    _mvt_kernel[grid](x1, x2, y_1, y_2, A, N, DTYPE = tl.constexpr(DTYPE))
