@@ -15,7 +15,7 @@ def _kernel(data, N, poly: tl.uint16, out):
             else:
                 crc >>= 1
             cur_byte >>= 1
-    crc = ~crc
+    crc = ~crc 
     crc = (crc << 8) | (crc >> 8)
     tl.store(out, crc)
 
