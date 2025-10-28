@@ -8,7 +8,9 @@ from npbench.infrastructure.triton_utilities import get_2d_tile_offsets, matmul
 def get_mean_sumsq_configs():
     return [
         triton.Config({"BLOCK_SIZE_M": m, "BLOCK_SIZE_N": n}, num_warps=w)
-        for m, n, w in itertools.product([16, 32, 64, 128], [32, 64, 128, 256], [1, 2, 4, 8])
+        for m, n, w in itertools.product(
+            [16, 32, 64, 128], [32, 64, 128, 256], [1, 2, 4, 8]
+        )
     ]
 
 
@@ -46,10 +48,7 @@ def _kernel_mean_and_sumsq(
 
 
 def get_stddev_configs():
-    return [
-        triton.Config({"BLOCK_SIZE_N": n})
-        for n in [16, 32, 64, 128, 256]
-    ]
+    return [triton.Config({"BLOCK_SIZE_N": n}) for n in [16, 32, 64, 128, 256]]
 
 
 @triton.autotune(
