@@ -51,6 +51,7 @@ def row_addition_relu(
 
     _kernel_row_addition_relu[grid](A, B, N, A.stride(0), A.stride(1))
 
+@triton.jit
 def load_row(
         A_ptr: torch.Tensor,
         B_ptr: torch.Tensor,
