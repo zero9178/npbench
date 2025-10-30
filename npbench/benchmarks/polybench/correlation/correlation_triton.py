@@ -109,8 +109,7 @@ def _kernel_normalize(
 
 
 def kernel(M, float_n, data):
-    M = data.shape[0]
-    N = data.shape[1]
+    M, N = data.shape
     mean = torch.zeros((N,), dtype=data.dtype)
     stddev = torch.zeros((N,), dtype=data.dtype)
 
