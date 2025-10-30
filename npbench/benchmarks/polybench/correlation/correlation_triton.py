@@ -53,7 +53,7 @@ def get_stddev_configs():
 
 @triton.autotune(
     configs=get_stddev_configs(),
-    key=["N"],
+    key=["N", "M"],
     cache_results=True,
 )
 @triton.jit
