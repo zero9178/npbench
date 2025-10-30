@@ -11,7 +11,22 @@ mean = np.mean(data, axis=0)
 data -= mean
 cov = (data.T @ data) / (float_n - 1.0)
 """
+import itertools
 
+def get_mean_configs():
+  return [
+      triton.Config({"BLOCK_SIZE_M": m, "BLOCK_SIZE_N": n}, num_warps=w)
+      for m, n, w in itertools.product(
+          [16, 32, 64, 128],      # BLOCK_SIZE_M options
+          [32, 64, 128, 256],     # BLOCK_SIZE_N options
+          [1, 2, 4, 8]            # num_warps options
+      )
+  ]
+
+@triton.autotune(
+  configs=get_mean_configs(),
+  key=["M", "N"],
+)
 @triton.jit
 def _kernel_mean(
   data,
@@ -35,6 +50,10 @@ def _kernel_mean(
     row_sum = tl.sum(values, axis=0)/M
     tl.atomic_add(out_mean + columns, row_sum, mask=columns < N)
 
+@triton.autotune(
+  configs=get_mean_configs(),
+  key=["M", "N"],
+)
 @triton.jit
 def _kernel_center(
   data,
@@ -69,13 +88,11 @@ def kernel(M, float_n, data:torch.Tensor):
         triton.cdiv(M, meta["BLOCK_SIZE_M"]),
         triton.cdiv(N, meta["BLOCK_SIZE_N"]),
     )
-    BLOCK_SIZE_M = tl.constexpr(32) # for now, no autotuning needed. speedup is already significant
-    BLOCK_SIZE_N = tl.constexpr(64)
 
-    _kernel_mean[grid_mean](data, M, N, mean, BLOCK_SIZE_N=BLOCK_SIZE_N, BLOCK_SIZE_M=BLOCK_SIZE_M)
+    _kernel_mean[grid_mean](data, M, N, mean)
 
     grid_center = grid_mean
-    _kernel_center[grid_center](data, mean, M, N, BLOCK_SIZE_N=BLOCK_SIZE_N, BLOCK_SIZE_M=BLOCK_SIZE_M)
+    _kernel_center[grid_center](data, mean, M, N)
 
     return matmul(data.T, data)/ (float_n - 1.0)
 
