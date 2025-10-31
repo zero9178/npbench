@@ -8,7 +8,7 @@ def _kernel_mandelbrot(
       N_ptr,          # output: iteration counts
       Z_real_ptr,     # output: real part of Z
       Z_imag_ptr,     # output: imaginary part of Z
-      xmin: tl.float64, xmax: tl.float64, ymin: tl.float64, ymax: tl.float64,  # bounds
+      xmin, xmax, ymin, ymax,  # bounds
       xn, yn,         # grid size
       maxiter,
       horizon,
