@@ -7,7 +7,7 @@ def generate_config():
     return [
         triton.Config(kwargs={"BLOCK_SIZE": m}, num_warps=w)
         for m, w in itertools.product(
-            [8, 16, 32, 64, 128], [1, 2, 4, 8]
+            [256, 512, 1024], [1, 2, 4, 8]
         )
     ]
 
