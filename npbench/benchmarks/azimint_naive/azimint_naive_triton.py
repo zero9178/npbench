@@ -58,9 +58,17 @@ def _accumulate_bins_kernel(data_ptr, radius_ptr,
     mask = offs < N
 
     r = tl.load(radius_ptr + offs, mask=mask, other=0.0)
+    rmax64 = tl.full((), rmax, tl.float64)
+    n_bins64 = tl.full((), n_bins, tl.float64)
+    bin64 = bin_idx.to(tl.float64)
 
-    r1 = rmax * bin_idx / n_bins
-    r2 = rmax * (bin_idx + 1.0) / n_bins
+    r1 = rmax64 * bin64 / n_bins64
+    r2 = rmax64 * (bin64 + 1.0) / n_bins64
+
+    # faster version but worse error:
+    # r1 = rmax * bin_idx / n_bins
+    # r2 = rmax * (bin_idx + 1.0) / n_bins
+
     in_bin = (r1 <= r) & (r < r2)
 
     v = tl.load(data_ptr + offs, mask=mask & in_bin, other=0.0)
