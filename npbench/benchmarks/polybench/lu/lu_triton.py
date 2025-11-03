@@ -22,7 +22,7 @@ def generate_config_col():
 
 @triton.autotune(configs=generate_config_col(), key=["N"], cache_results=True)
 @triton.jit
-def _lu_div_column_kernel(
+def _kernel_lu_div_column(
     A_ptr, stride_am, stride_an,
     N, k,
     BLOCK_SIZE: tl.constexpr,
@@ -48,7 +48,7 @@ def _lu_div_column_kernel(
 
 @triton.autotune(configs=generate_config(), key=["N"], cache_results=True)
 @triton.jit
-def _lu_trailing_update_kernel(
+def _kernel_lu_trailing_update(
     A_ptr, stride_am, stride_an,
     N, k,
     BLOCK_SIZE_M: tl.constexpr,
@@ -84,9 +84,8 @@ def _lu_trailing_update_kernel(
 
 def kernel(A: torch.Tensor):
     """
-    In-place LU factorization (no pivoting).
-    A: (N, N) contiguous float32/float16/bfloat16 CUDA tensor.
-       On return, A has L (unit diag, below diag) and U (on/above diag).
+    LU factorization
+    On return, A has L (unit diag, below diag) and U (on/above diag).
     """
     N = A.shape[0]
 
@@ -97,7 +96,7 @@ def kernel(A: torch.Tensor):
         grid_col = lambda meta: (
             triton.cdiv((max(N - (k + 1), 0) + meta["BLOCK_SIZE"] - 1), meta["BLOCK_SIZE"]),
         )
-        _lu_div_column_kernel[grid_col](
+        _kernel_lu_div_column[grid_col](
             A, stride_am, stride_an,
             N, k,
         )
@@ -110,7 +109,7 @@ def kernel(A: torch.Tensor):
             triton.cdiv((rem + meta["BLOCK_SIZE_M"] - 1), meta["BLOCK_SIZE_M"]),
             triton.cdiv((rem + meta["BLOCK_SIZE_N"] - 1), meta["BLOCK_SIZE_N"]),
         )
-        _lu_trailing_update_kernel[grid](
+        _kernel_lu_trailing_update[grid](
             A, stride_am, stride_an,
             N, k,
         )
