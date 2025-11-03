@@ -46,21 +46,16 @@ def _kernel_conv2d(
 
 
 def conv2d_bias(input, weights, bias):
-    # Get dimensions
     N, H, W, C_in = input.shape
-    K = weights.shape[0]  # Assuming square kernel
+    K = weights.shape[0]
     C_out = weights.shape[3]
     H_out = H - K + 1
     W_out = W - K + 1
 
-    # Allocate output
     output = torch.empty((N, H_out, W_out, C_out), device=input.device, dtype=input.dtype)
 
-    # Choose block size for input channels (power of 2 for efficiency)
     BLOCK_C_IN = min(128, triton.next_power_of_2(C_in))
 
-    # Launch kernel with 3D grid (Triton only supports up to 3D)
-    # Flatten batch and spatial dimensions into one axis
     grid = (N * H_out * W_out, C_out, 1)
     _kernel_conv2d[grid](
         input, weights, output, bias,
