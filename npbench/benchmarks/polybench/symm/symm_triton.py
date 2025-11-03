@@ -6,10 +6,9 @@ import triton.language as tl
 def generate_config():
     ms = [64, 128]
     ns = [64, 128]
-    ks = [16, 32, 64]
-    warps = [2, 4]
+    ks = [32, 64]
     cfgs = []
-    for m, n, k, w in itertools.product(ms, ns, ks, warps):
+    for m, n, k in itertools.product(ms, ns, ks):
         if m == 128 and n == 128 and k == 64:
             pass
         cfgs.append(
@@ -19,7 +18,6 @@ def generate_config():
                     "BLOCK_SIZE_N": n,
                     "BLOCK_SIZE_K": k,
                 },
-                num_warps=w,
             )
         )
     return cfgs
