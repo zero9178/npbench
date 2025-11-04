@@ -147,9 +147,9 @@ def kernel(A: torch.Tensor, b: torch.Tensor):
     for k in range(N):
         # 1) scale column below pivot
         if k + 1 < N:
-            def grid_col(meta):
-                rem = N - (k + 1)
-                return (triton.cdiv(rem, meta["BLOCK_SIZE"]),)
+            grid_col = lambda meta: (
+                triton.cdiv((N - (k + 1)), meta["BLOCK_SIZE"]),
+            )
 
             _kernel_lu_div_column[grid_col](
                 A, stride_am, stride_an,
@@ -159,11 +159,10 @@ def kernel(A: torch.Tensor, b: torch.Tensor):
         # 2) rank-1 update of trailing block
         rem = N - (k + 1)
         if rem > 0:
-            def grid_upd(meta):
-                return (
-                    triton.cdiv(rem, meta["BLOCK_SIZE_M"]),
-                    triton.cdiv(rem, meta["BLOCK_SIZE_N"]),
-                )
+            grid_upd = lambda meta: (
+                triton.cdiv(rem, meta["BLOCK_SIZE_M"]),
+                triton.cdiv(rem, meta["BLOCK_SIZE_N"]),
+            )
 
             _kernel_lu_trailing_update[grid_upd](
                 A, stride_am, stride_an,
