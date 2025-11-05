@@ -2,7 +2,16 @@ import numpy as np
 import torch
 import triton
 import triton.language as tl
+import itertools
 
+def get_configs():
+    return [
+        triton.Config(
+            {"BLOCK_SIZE_X": bx, "BLOCK_SIZE_Y": by}, num_warps=w
+        ) for bx, by, w in itertools.product([4, 8, 16, 32], [4, 8, 16], [1, 2, 4, 8])
+    ]
+
+@triton.autotune(configs=get_configs(), key=["xn", "yn", "maxiter"])
 @triton.jit
 def _kernel_mandelbrot(
       N_ptr,          # output: iteration counts
@@ -63,9 +72,10 @@ def mandelbrot(xmin, xmax, ymin, ymax, xn, yn, maxiter, horizon=2.0):
     Z_real = torch.zeros((yn, xn), dtype=torch.float64, device=device)
     Z_imag = torch.zeros((yn, xn), dtype=torch.float64, device=device)
 
-    BLOCK_SIZE_X = 16
-    BLOCK_SIZE_Y = 16
-    grid = (triton.cdiv(xn, BLOCK_SIZE_X), triton.cdiv(yn, BLOCK_SIZE_Y))
+    grid = lambda meta: (
+        triton.cdiv(xn, meta['BLOCK_SIZE_X']),
+        triton.cdiv(yn, meta['BLOCK_SIZE_Y'])
+    )
 
 
     _kernel_mandelbrot[grid](
@@ -80,8 +90,6 @@ def mandelbrot(xmin, xmax, ymin, ymax, xn, yn, maxiter, horizon=2.0):
         yn,
         maxiter,
         horizon,
-        BLOCK_SIZE_X=BLOCK_SIZE_X,
-        BLOCK_SIZE_Y=BLOCK_SIZE_Y
     )
     Z = torch.complex(Z_real, Z_imag)
     return Z, N
