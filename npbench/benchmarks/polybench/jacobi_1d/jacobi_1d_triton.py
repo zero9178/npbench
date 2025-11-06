@@ -2,11 +2,20 @@ import torch
 import triton
 import triton.language as tl
 
+def get_configs():
+    return [
+        triton.Config({'BLOCK_SIZE': b}, num_warps=w)
+        for b in [64, 128, 256, 512]
+        for w in [1, 2, 4, 8]
+    ]
 
+@triton.autotune(
+    configs=get_configs(),
+    key=['TSTEPS', 'N'],
+)
 @triton.jit
-def _kernel(TSTEPS: tl.constexpr, src, dst, N: tl.constexpr,
-            BLOCK_SIZE: tl.constexpr,
-            barrier):
+def _kernel(TSTEPS: tl.constexpr, src, dst, N: tl.constexpr, barrier,
+            BLOCK_SIZE: tl.constexpr):
     x = tl.program_id(axis=0)
     num_x = tl.num_programs(axis=0)
 
@@ -34,6 +43,5 @@ def kernel(TSTEPS: int, A: torch.Tensor, B: torch.Tensor):
     N = A.size(0)
     grid = lambda meta: (triton.cdiv(N, meta['BLOCK_SIZE']),)
 
-    BLOCK_SIZE = 128
     barrier = torch.zeros(1)
-    _kernel[grid](TSTEPS, A, B, N, BLOCK_SIZE, barrier)
+    _kernel[grid](TSTEPS, A, B, N, barrier)
