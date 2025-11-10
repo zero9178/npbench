@@ -7,10 +7,89 @@ Neither of the kernels were tuned specifically. The auto-tuning options are
 currently commented out for faster development.
 """
 import itertools
+import operator
+from functools import reduce
+from typing import Callable
 
 import torch
 import triton
 import triton.language as tl
+
+
+def derive_launch_arguments(extra_kw: Callable):
+    """
+    Function decorator capable of adding extra launch arguments by deriving them from existing.
+    This can be used to make triton kernels (functions annotated with @triton.jit) less verbose to call
+    (more like numpy and torch implementations).
+
+    All arguments passed to the kernel are first converted to keyword arguments and then passed to
+    ``extra_kw``.
+    ``extra_kw`` should return a dictionary with new keyword arguments that are to be added.
+    Values returned within this dictionary may also override existing keyword arguments.
+    """
+
+    def decorator(fn):
+        class Wrapper:
+            # Allow using [] syntax as triton does.
+            def __getitem__(self, launch_args):
+                def wrapper(*args, **kwargs):
+                    kwargs |= {
+                        k: v for k, v in zip(fn.arg_names, args, strict=False)
+                    }
+                    kwargs |= extra_kw(**kwargs)
+                    return fn[launch_args](**kwargs)
+
+                return wrapper
+
+        return Wrapper()
+
+    return decorator
+
+
+def use_grid(grid: Callable):
+    """
+    Decorator that can be added to always apply ``grid`` as the grid when calling
+    a triton kernel.
+    """
+
+    def decorator(fn):
+        return fn[grid]
+
+    return decorator
+
+
+@triton.jit
+def get_4d_tile_offsets(c0, c1, c2, c3,
+                        tile_dims: tl.constexpr,
+                        matrix_dims: tl.constexpr):
+    """
+    Generates a tile of offsets that when added to a tensor of dimensions 'matrix_dims',
+    yields a tile of size 'tile_dims' positioned at (c0, c1, c2, c3) within the tensor.
+
+    All coordinates and dimensions are in 'number of elements' unit.
+    Assumes a fully contiguous tensor.
+
+    Returns:
+        - The offset tile of shape 'tile_dims'.
+        - A mask that can be used when loading and storing the tile to stay within the bounds of 'matrix_dims'.
+    """
+    n0: tl.constexpr = tile_dims[0]
+    n1: tl.constexpr = tile_dims[1]
+    n2: tl.constexpr = tile_dims[2]
+    n3: tl.constexpr = tile_dims[3]
+    m0, m1, m2, m3 = matrix_dims
+    c0 += tl.arange(0, n0)
+    c1 += tl.arange(0, n1)
+    c2 += tl.arange(0, n2)
+    c3 += tl.arange(0, n3)
+
+    c0 = c0[:, None, None, None]
+    c1 = c1[None, :, None, None]
+    c2 = c2[None, None, :, None]
+    c3 = c3[None, None, None, :]
+
+    return (c0 * m1 * m2 * m3 + c1 * m2 * m3 + c2 * m3 + c3,
+            (c0 < m0) & (c1 < m1) & (c2 < m2) & (c3 < m3))
 
 
 @triton.jit
@@ -55,6 +134,105 @@ def get_1d_tile_offsets(x, tile_width, vector_width):
                                                     matrix_width=vector_width,
                                                     matrix_height=1)
     return tl.reshape(tile, (tile_width,)), tl.reshape(mask, (tile_width,))
+
+
+def _get_mean_sumsq_configs():
+    return [
+        triton.Config({"BLOCK_SIZE_M": m, "BLOCK_SIZE_N": n}, num_warps=w)
+        for m, n, w in itertools.product(
+            [16, 32, 64, 128], [32, 64, 128, 256], [1, 2, 4, 8]
+        )
+    ]
+
+
+@use_grid(lambda meta: (
+        triton.cdiv(meta['M'], meta["BLOCK_SIZE_M"]),
+        triton.cdiv(meta['N'], meta["BLOCK_SIZE_N"]),
+))
+@derive_launch_arguments(lambda data, **_: {
+    'M': data.shape[0],
+    # Allow the innermost dimension to actually consist of multiple dimensions.
+    # Legal since all our tensors are fully contiguous.
+    'N': reduce(operator.mul, data.shape[1:], 1),
+})
+@triton.autotune(
+    configs=_get_mean_sumsq_configs(),
+    key=["M", "N"],
+    cache_results=True,
+)
+@triton.jit
+def kernel_mean_and_sumsq(
+        data,  # (M, N)
+        out_mean,  # (N,)
+        out_stddev,  # (N,)
+        M,
+        N,
+        BLOCK_SIZE_M: tl.constexpr,
+        BLOCK_SIZE_N: tl.constexpr,
+):
+    """
+    Calculates the mean and mean square sum of the 'M' dimension of 'data' and stores it into 'out_mean' and 'out_stddev'
+    respectively.
+    'out_mean' and 'out_stddev' must be initialized with zero.
+    """
+
+    i = tl.program_id(axis=0)
+    j = tl.program_id(axis=1)
+
+    tile, mask, rows, columns = get_2d_tile_offsets(
+        x=j * BLOCK_SIZE_N,
+        y=i * BLOCK_SIZE_M,
+        tile_width=BLOCK_SIZE_N,
+        tile_height=BLOCK_SIZE_M,
+        matrix_width=N,
+        matrix_height=M,
+    )
+    values = tl.load(data + tile, mask)
+    row_sum = tl.sum(values, axis=0) / M
+    row_sum_sq = tl.sum(values * values, axis=0) / M
+    tl.atomic_add(out_mean + columns, row_sum, mask=columns < N)
+    tl.atomic_add(out_stddev + columns, row_sum_sq, mask=columns < N)
+
+
+def _get_stddev_configs():
+    return [triton.Config({"BLOCK_SIZE_N": n}, num_warps=b) for n, b in
+            itertools.product([16, 32, 64, 128, 256, 512, 1024, 2048, 4096],
+                              [1, 2, 4, 8])]
+
+
+@triton.jit()
+def unary_noop(x): return x
+
+@use_grid(lambda meta: (triton.cdiv(meta['N'], meta["BLOCK_SIZE_N"]),))
+@derive_launch_arguments(lambda mean, **_: {
+    'N': reduce(operator.mul, mean.shape, 1)
+})
+@triton.autotune(
+    configs=_get_stddev_configs(),
+    key=["N"],
+    cache_results=True,
+)
+@triton.jit
+def kernel_compute_stddev(mean,  # (N,)
+                          stddev,  # (N,)
+                          N,
+                          BLOCK_SIZE_N: tl.constexpr,
+                          post_process: tl.constexpr = unary_noop):
+    """
+    Given 'mean' and the mean of squares in 'stddev', calculates the standard deviation for every element of the
+    tensors and stores it back to 'stddev'.
+
+    'post_process' may be used to perform post-processing on 'stddev'.
+    """
+
+    i = tl.program_id(axis=0)
+    tile = tl.arange(0, BLOCK_SIZE_N) + i * BLOCK_SIZE_N
+    mask = tile < N
+    means = tl.load(mean + tile, mask)
+    sum_sq = tl.load(stddev + tile, mask)
+    stddevs = tl.sqrt(sum_sq - means * means)
+    stddevs = post_process(stddevs)
+    tl.store(stddev + tile, stddevs, mask)
 
 
 @triton.autotune(
