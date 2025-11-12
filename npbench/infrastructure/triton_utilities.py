@@ -32,7 +32,7 @@ def grid_sync(barrier):
 
     tl.static_assert(barrier.dtype.element_ty == tl.int32)
 
-    # Perform thread synchronization by incrementing a barrier by the value 2^31 in total, causing a sign bit slip.
+    # Perform thread synchronization by incrementing a barrier by the value 2^31 in total, causing a sign bit flip.
     # All threads but the one with id 0 increment by 1, the thread with id 0 increments by (2^31 - (num_threads - 1)).
     # This makes it such that all threads observe the sign bit change (ie the change from 0 to 2^31 or vice versa) only
     # as soon as every thread has performed the addition.
