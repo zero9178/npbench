@@ -14,6 +14,46 @@ import triton.language as tl
 
 
 @triton.jit
+def grid_sync(barrier):
+    """
+    Performs a grid level synchronization among every thread block of the GPU. Threads leave the function as soon as
+    every thread has entered this function.
+    All memory effects performed prior to this function call are guaranteed to be visible to other threads.
+
+    'barrier' should be a pointer to an integer and is required to be 0 or 2^31 when the first thread enters.
+    The value is guaranteed to be 0 or 2^31 when all threads leave.
+
+    CAUTION: This function can deadlock if too many blocks are spawned such that they do not all fit into the warp
+    scheduler of all SMs! Add `launch_cooperative_grid=True` to the kernel launch call to cause an error if it would
+    deadlock.
+    A persistent kernel design that launches exactly as many blocks as there are SMs is recommended when using grid
+    level synchronization. See 'jacobi_1d_triton.py'.
+    """
+
+    tl.static_assert(barrier.dtype.element_ty == tl.int32)
+
+    # Perform thread synchronization by incrementing a barrier by the value 2^31 in total, causing a sign bit slip.
+    # All threads but the one with id 0 increment by 1, the thread with id 0 increments by (2^31 - (num_threads - 1)).
+    # This makes it such that all threads observe the sign bit change (ie the change from 0 to 2^31 or vice versa) only
+    # as soon as every thread has performed the addition.
+    expected = tl.num_programs(0) * tl.num_programs(1) * tl.num_programs(2)
+    first = (tl.program_id(0) + tl.program_id(1) + tl.program_id(2)) == 0
+    nb = 1
+    if first:
+        nb = -2147483648 - (expected - 1)
+
+    old_arrive = tl.atomic_add(barrier, nb, sem='release')
+
+    c = True
+    while c:
+        # Compiles to an atomic load due to incrementing by 0.
+        current_arrive = tl.atomic_add(barrier, 0, sem='acquire')
+        # Check whether the sign bit/top bit has changed.
+        if (old_arrive ^ current_arrive) < 0:
+            c = False
+
+
+@triton.jit
 def get_2d_tile_offsets(x: tl.int32,
                         y: tl.int32,
                         tile_width: tl.constexpr,
