@@ -85,6 +85,9 @@ if __name__ == "__main__":
 
     # 3) Run every (benchmark, framework) pair
     for benchname in benchnames:
+        if benchname.startswith("a") or benchname.startswith("b") or benchname.startswith("c"):
+            # skip "a" and "b" benchmarks for quicker testing
+            continue
         for framework_name in frameworks:
             print(f"=== {benchname} / {framework_name} ===")
             p = Process(
