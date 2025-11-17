@@ -10,13 +10,14 @@ from npbench.infrastructure import (Benchmark, generate_framework, LineCount,
 
 def run_benchmark(benchname, fname, preset, validate, repeat, timeout,
                   ignore_errors, save_strict, load_strict):
-    frmwrk = generate_framework(fname, save_strict, load_strict)
-    numpy = generate_framework("numpy")
-    bench = Benchmark(benchname)
-    lcount = LineCount(bench, frmwrk, numpy)
-    lcount.count()
-    test = Test(bench, frmwrk, numpy)
-    test.run(preset, validate, repeat, timeout, ignore_errors)
+    for f in fname:
+        frmwrk = generate_framework(f, save_strict, load_strict)
+        numpy = generate_framework("numpy")
+        bench = Benchmark(benchname)
+        lcount = LineCount(bench, frmwrk, numpy)
+        lcount.count()
+        test = Test(bench, frmwrk, numpy)
+        test.run(preset, validate, repeat, timeout, ignore_errors)
 
 
 if __name__ == "__main__":
@@ -24,7 +25,7 @@ if __name__ == "__main__":
     parser.add_argument("-f",
                         "--framework",
                         type=str,
-                        nargs="?",
+                        nargs="+",
                         default="numpy")
     parser.add_argument("-p",
                         "--preset",
