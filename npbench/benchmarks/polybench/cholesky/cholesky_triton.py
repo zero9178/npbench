@@ -1,187 +1,90 @@
+import itertools
 import torch
 import triton
 import triton.language as tl
 
+def generate_config_2d():
+    return [
+        triton.Config(kwargs={"BLOCK_SIZE_M": m, "BLOCK_SIZE_N": n}, num_warps=w)
+        for m, n, w in itertools.product(
+            [16, 32, 64, 128], [16, 32, 64, 128], [1, 2, 4, 8]
+        )
+    ]
+
+
+def generate_config_1d():
+    return [
+        triton.Config(kwargs={"BLOCK_SIZE": bsz}, num_warps=w)
+        for bsz, w in itertools.product([64, 128, 256, 512, 1024], [1, 2, 4, 8])
+    ]
+
+# 1) Diagonal update at step k:
+#    L[k,k] = sqrt( A[k,k] - sum_{s<k} L[k,s]^2 )
+@triton.autotune(configs=generate_config_1d(), key=["N"], cache_results=True)
 @triton.jit
-def _kernel(A_ptr, N : tl.constexpr, BLOCK_SIZE_N: tl.constexpr, DTYPE : tl.constexpr):
-    # N = rows (height), M = cols (width)
-    # For an element (i, j) in row-major order: offset=i*M+j
+def chol_diag_kernel(A_ptr, stride_am, stride_an, N, k, BLOCK_SIZE: tl.constexpr):
+    # reduction across s in chunks of BLOCK_S
+    acc = tl.zeros((), dtype=A_ptr.dtype.element_ty)
+    s0 = 0
+    while s0 < k:
+        ss = s0 + tl.arange(0, BLOCK_SIZE)
+        ms = ss < k
+        row_off = k * stride_am
+        lk = tl.load(A_ptr + row_off + ss * stride_an, mask=ms, other=0.0)
+        acc += tl.sum(lk * lk, axis=0)
+        s0 += BLOCK_SIZE
+    akk = tl.load(A_ptr + k * stride_am + k * stride_an)
+    val = tl.sqrt(akk - acc)
+    tl.store(A_ptr + k * stride_am + k * stride_an, val)
 
-    a_00 = tl.load(A_ptr + 0)
-    a_00 = tl.sqrt(a_00)
-    tl.store(A_ptr, a_00)
+# 2) Column update below diagonal at step k:
+#    For i>k: L[i,k] = ( A[i,k] - sum_{s<k} L[i,s]*L[k,s] ) / L[k,k]
+@triton.autotune(configs=generate_config_1d(), key=["N"], cache_results=True)
+@triton.jit
+def chol_col_kernel(A_ptr, stride_am, stride_an, N, k,
+                    BLOCK_SIZE: tl.constexpr):
+    pid = tl.program_id(0)
+    i = k + 1 + pid
+    if i >= N:
+        return
 
-    for i in range(1, N):
-        for j in range(i):
-            
-            # A[i, j] -= np.dot(A[i, :j], A[j, :j])
-            sum_val = tl.zeros((), DTYPE)
-            for k in range(j):
-                a_ik = tl.load(A_ptr + i*N + k)
-                a_jk = tl.load(A_ptr + j*N + k)
-                sum_val += a_ik * a_jk
-            a_ij = tl.load(A_ptr + i*N + j)
-            a_ij -= sum_val
+    # dot( L[i,:k], L[k,:k] )
+    acc = tl.zeros((), dtype=A_ptr.dtype.element_ty)
+    s0 = 0
+    while s0 < k:
+        ss = s0 + tl.arange(0, BLOCK_SIZE)
+        ms = ss < k
+        li = tl.load(A_ptr + i * stride_am + ss * stride_an, mask=ms, other=0.0)
+        lk = tl.load(A_ptr + k * stride_am + ss * stride_an, mask=ms, other=0.0)
+        acc += tl.sum(li * lk, axis=0)
+        s0 += BLOCK_SIZE
 
-            # A[i, j] /= A[j, j]
-            a_jj = tl.load(A_ptr + j*N + j)
-            a_ij /= a_jj
-            tl.store(A_ptr + i*N + j, a_ij)
-
-        # A[i, i] -= np.dot(A[i, :i], A[i, :i])
-        offset_i_i = i*N + i
-        sum_val = tl.zeros((), DTYPE)
-        for i_itr in range(i):
-            offset_i_i_itr = i*N + i_itr
-            a_i_i_itr = tl.load(A_ptr + offset_i_i_itr)
-            sum_val += a_i_i_itr * a_i_i_itr
-        a_ii = tl.load(A_ptr + offset_i_i)
-        a_ii -= sum_val
-        # A[i, i] = np.sqrt(A[i, i])
-        a_ii = tl.sqrt(a_ii)
-        tl.store(A_ptr + offset_i_i, a_ii)
+    aik = tl.load(A_ptr + i * stride_am + k * stride_an)
+    lkk = tl.load(A_ptr + k * stride_am + k * stride_an)
+    lik = (aik - acc) / lkk
+    tl.store(A_ptr + i * stride_am + k * stride_an, lik)
 
 
+# ------------------------------------------------------
+# Host-side function: drop-in for your numpy "kernel(A)"
+# ------------------------------------------------------
 def kernel(A: torch.Tensor):
-    N, M = A.shape  # N = rows (height), M = cols (width)
-    assert N == M, "Cholesky decomposition requires a square matrix"
+    """
+    In-place: A[:] = chol(A) + strictly_upper(original A)
+    """
+    N = A.shape[0]
+    A0 = A.clone()  # keep original upper triangle
 
-    grid = lambda meta: (
-    triton.cdiv(N, meta['BLOCK_SIZE_N']),  # programs along x (columns)
-    triton.cdiv(N, meta['BLOCK_SIZE_N']),  # programs along y (rows)
-    )
+    stride_am, stride_an = A.stride()
 
-    if A.dtype == torch.float32:
-        DTYPE = tl.float32
-    elif A.dtype == torch.float64:
-        DTYPE = tl.float64
-    else:
-        raise TypeError("Use float32/float64")
-
-    BLOCK_SIZE_N = 128
-    _kernel[grid](A, N, BLOCK_SIZE_N, DTYPE)
-
-
-# import torch
-# import triton
-# import triton.language as tl
-# from npbench.benchmarks.polybench.gemm.gemm_triton import kernel as gemm_kernel
-
-# @triton.jit
-# def potrf_diag(A, N, lda, k,
-#                BK: tl.constexpr, eps: tl.constexpr,
-#                DTYPE: tl.constexpr, ACC: tl.constexpr):
-#     base = A + k*lda + k
-
-#     zero = tl.zeros((), dtype=ACC)
-#     # (0,0)
-#     a00 = tl.cast(tl.load(base + 0*lda + 0), ACC)
-#     # CHANGED: use eps (cast to ACC), not 0.0
-#     a00 = tl.sqrt(tl.maximum(a00, tl.cast(eps, ACC)))   # CHANGED
-#     tl.store(base + 0*lda + 0, tl.cast(a00, DTYPE))
-
-#     for i in range(1, BK):
-#         # off-diagonals
-#         for j in range(0, i):
-#             acc = tl.zeros((), dtype=ACC)
-#             for q in range(0, j):
-#                 li = tl.cast(tl.load(base + i*lda + q), ACC)
-#                 lj = tl.cast(tl.load(base + j*lda + q), ACC)
-#                 acc += li * lj
-#             aij = tl.cast(tl.load(base + i*lda + j), ACC) - acc
-#             ljj = tl.cast(tl.load(base + j*lda + j), ACC)
-#             aij = aij / ljj
-#             tl.store(base + i*lda + j, tl.cast(aij, DTYPE))
-
-#         # diagonal
-#         accii = tl.zeros((), dtype=ACC)
-#         for q in range(0, i):
-#             v = tl.cast(tl.load(base + i*lda + q), ACC)
-#             accii += v * v
-#         aii = tl.cast(tl.load(base + i*lda + i), ACC) - accii
-#         aii = tl.sqrt(tl.maximum(aii, tl.cast(eps, ACC)))
-#         tl.store(base + i*lda + i, tl.cast(aii, DTYPE))
-
-#     # zero upper triangle of this BKxBK tile
-#     for r in range(0, BK):
-#         for c in range(r+1, BK):
-#             tl.store(base + r*lda + c, tl.cast(zero, DTYPE))
+    # Cholesky: overwrite A's lower triangle with L
+    for k in range(N):
+        # diag
+        chol_diag_kernel[(1,)](A, stride_am, stride_an, N, k)
+        # column below diag: launch one program per row i=k+1..N-1
+        n_rows = max(0, N - (k + 1))
+        if n_rows > 0:
+            chol_col_kernel[(n_rows,)](A, stride_am, stride_an, N, k)
 
 
-# @triton.jit
-# def trsm_panel(A, N, lda, k, BK: tl.constexpr, BLOCK: tl.constexpr,
-#                DTYPE: tl.constexpr, ACC: tl.constexpr):
-#     pid = tl.program_id(0)                 # row-tile index
-#     bi  = k + BK + pid * BLOCK             # starting row
-#     if bi >= N:
-#         return
-#     m = tl.minimum(BLOCK, N - bi)          # runtime extent (<= BLOCK)
-
-#     Lkk = A + k*lda + k                    # (BK,BK)
-#     Aik = A + bi*lda + k                   # (m,BK)
-
-#     # compile-time aranges; mask rows by runtime m
-#     rows = tl.arange(0, BLOCK)
-#     row_mask = rows < m
-
-#     # Right-side solve: Aik = Aik * inv(Lkk^T)
-#     for j in range(0, BK):
-#         # col_j := Aik[:, j]
-#         col_ptrs = Aik + rows * lda + j
-#         col = tl.cast(tl.load(col_ptrs, mask=row_mask, other=0.0), ACC)
-
-#         # divide by diagonal L[j,j]
-#         ljj = tl.cast(tl.load(Lkk + j*lda + j), ACC)
-#         col = col / ljj
-
-#         # write back updated column j
-#         tl.store(col_ptrs, tl.cast(col, DTYPE), mask=row_mask)
-
-#         # update trailing columns t = j+1..BK-1: Aik[:, t] -= col * L[t,j]
-#         if j + 1 < BK:
-#             for t in range(j+1, BK):
-#                 ltj = tl.cast(tl.load(Lkk + t*lda + j), ACC)
-#                 t_ptrs = Aik + rows * lda + t
-#                 tcol  = tl.cast(tl.load(t_ptrs, mask=row_mask, other=0.0), ACC)
-#                 tcol  = tcol - col * ltj
-#                 tl.store(t_ptrs, tl.cast(tcol, DTYPE), mask=row_mask)
-       
-
-# def kernel(A: torch.Tensor):
-#     BK=64
-#     BLOCK=128
-#     N = A.shape[0]
-#     lda = N
-
-#     dtype = A.dtype
-#     assert dtype in (torch.float32, torch.float64)
-
-#     # pick Triton types
-#     if dtype == torch.float32:
-#         DTYPE, ACC = tl.float32, tl.float32
-#         eps = 1e-6   # CHANGED: dtype-aware eps
-#     else:  # float64
-#         DTYPE, ACC = tl.float64, tl.float64
-#         eps = 1e-12  # CHANGED: dtype-aware eps
-        
-#     for k in range(0, N, BK):
-#         bk = min(BK, N - k)
-
-#         # 1) POTRF on diagonal tile: single program (serial inside the tile)
-#         potrf_diag[(1,)](A, N, lda, k, BK=bk, eps=eps, DTYPE=DTYPE, ACC=ACC)  # CHANGED
-
-#         if k + bk >= N:
-#             continue
-
-#         # 2) TRSM: solve panel below diagonal - 1D grid over row tiles
-#         grid_y = (N - (k + bk) + BLOCK - 1) // BLOCK
-#         trsm_panel[(grid_y,)](A, N, lda, k, BK=bk, BLOCK=BLOCK, DTYPE=DTYPE, ACC=ACC)
-
-#         # 3) GEMM: trailing update - 2D grid over lower-tri tiles
-#         # alpha = -1, beta = 1
-#         A21 = A[k + bk:, k : k + bk]
-#         A22 = A[k + bk:, k + bk:]
-#         A21T = A21.transpose(0, 1).contiguous()
-#         gemm_kernel(-1.0, 1.0, A22, A21, A21T)
-
-#     return A
+    return A
