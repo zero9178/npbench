@@ -1,8 +1,23 @@
+import itertools
 import torch
 import triton
 import triton.language as tl
 
 
+def get_heat_3d_configs():
+    return [
+        triton.Config({"BLOCK_SIZE": bs}, num_warps=w)
+        for bs, w in itertools.product(
+            [2, 4, 8, 16],  # BLOCK_SIZE options
+            [1, 2, 4, 8]    # num_warps options
+        )
+    ]
+
+
+@triton.autotune(
+    configs=get_heat_3d_configs(),
+    key=["N"],
+)
 @triton.jit
 def _kernel(TSTEPS: tl.constexpr, src, dst, N: tl.constexpr,
             BLOCK_SIZE: tl.constexpr,):
@@ -49,5 +64,4 @@ def kernel(TSTEPS: int, A: torch.Tensor, B: torch.Tensor):
         triton.cdiv(N - 2, meta['BLOCK_SIZE']),  # y dimension
         triton.cdiv(N - 2, meta['BLOCK_SIZE']),  # z dimension
     )
-    BLOCK_SIZE = 4
-    _kernel[grid](TSTEPS, A, B, N, BLOCK_SIZE)
+    _kernel[grid](TSTEPS, A, B, N)
