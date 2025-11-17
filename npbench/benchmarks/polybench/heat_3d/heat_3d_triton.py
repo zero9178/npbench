@@ -3,6 +3,8 @@ import torch
 import triton
 import triton.language as tl
 
+from npbench.infrastructure.triton_utilities import grid_sync
+
 
 def get_heat_3d_configs():
     return [
@@ -19,7 +21,7 @@ def get_heat_3d_configs():
     key=["N"],
 )
 @triton.jit
-def _kernel(TSTEPS: tl.constexpr, src, dst, N: tl.constexpr,
+def _kernel(TSTEPS: tl.constexpr, src, dst, N: tl.constexpr, barrier,
             BLOCK_SIZE: tl.constexpr,):
     pid_x = tl.program_id(axis=0)
     pid_y = tl.program_id(axis=1)
@@ -56,6 +58,7 @@ def _kernel(TSTEPS: tl.constexpr, src, dst, N: tl.constexpr,
                       center)
             tl.store(dst + center_offsets, result, mask=mask_3d)
             src, dst = dst, src
+            grid_sync(barrier)
 
 def kernel(TSTEPS: int, A: torch.Tensor, B: torch.Tensor):
     N = A.size(0)
@@ -64,4 +67,5 @@ def kernel(TSTEPS: int, A: torch.Tensor, B: torch.Tensor):
         triton.cdiv(N - 2, meta['BLOCK_SIZE']),  # y dimension
         triton.cdiv(N - 2, meta['BLOCK_SIZE']),  # z dimension
     )
-    _kernel[grid](TSTEPS, A, B, N)
+    barrier = torch.zeros(1, dtype=torch.int32, device=A.device)
+    _kernel[grid](TSTEPS, A, B, N, barrier, launch_cooperative_grid=True)
