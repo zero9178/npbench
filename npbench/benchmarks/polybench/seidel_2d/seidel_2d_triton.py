@@ -1,8 +1,24 @@
+import itertools
 import torch
 import triton
 import triton.language as tl
 
 
+def get_seidel_2d_configs():
+    return [
+        triton.Config({"BLOCK_SIZE": bs}, num_warps=w)
+        for bs, w in itertools.product(
+            [64, 128, 256, 512, 1024],  # BLOCK_SIZE options
+            [1, 2, 4, 8, 16, 32]        # num_warps options
+        )
+    ]
+
+
+@triton.autotune(
+    configs=get_seidel_2d_configs(),
+    key=["N"],
+    cache_results=True
+)
 @triton.jit
 def _kernel_stencil(A_ptr, N, row_idx, BLOCK_SIZE: tl.constexpr):
   """Apply 7-neighbor stencil to row row_idx: A[row_idx, 1:-1] += (neighbors)"""
@@ -36,15 +52,13 @@ def _kernel_stencil(A_ptr, N, row_idx, BLOCK_SIZE: tl.constexpr):
 
 
 def kernel(TMAX, N, A):
-    BLOCK_SIZE = 1024
-    num_col_blocks = (N - 2 + BLOCK_SIZE - 1) // BLOCK_SIZE
-    grid_stencil = lambda meta: (num_col_blocks,)
+    grid_stencil = lambda meta: (triton.cdiv(N - 2, meta['BLOCK_SIZE']),)
 
     for t in range(TMAX - 1):
         # Process rows sequentially (Gauss-Seidel dependency)
         for i in range(1, N-1):
             # Apply stencil to row i in parallel across columns
-            _kernel_stencil[grid_stencil](A, N, i, BLOCK_SIZE=BLOCK_SIZE)
+            _kernel_stencil[grid_stencil](A, N, i)
 
             # Sequential scan along row i
             for j in range(1, N - 1):
