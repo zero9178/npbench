@@ -1,48 +1,17 @@
 import torch
 import triton
 import triton.language as tl
+import itertools
 
-@triton.autotune(
-    configs=[
-        triton.Config({'BLOCK_M': 64, 'BLOCK_N': 64, 'BLOCK_K': 64}, num_stages=4,
-                      num_warps=4),
-        # triton.Config({'BLOCK_M': 128, 'BLOCK_N': 256, 'BLOCK_K': 64}, num_stages=3,
-        #               num_warps=8),
-        # triton.Config({'BLOCK_M': 64, 'BLOCK_N': 256, 'BLOCK_K': 32}, num_stages=4,
-        #               num_warps=4),
-        # triton.Config({'BLOCK_M': 128, 'BLOCK_N': 128, 'BLOCK_K': 32}, num_stages=4,
-        #               num_warps=4),
-        # triton.Config({'BLOCK_M': 128, 'BLOCK_N': 64, 'BLOCK_K': 32}, num_stages=4,
-        #               num_warps=4),
-        # triton.Config({'BLOCK_M': 64, 'BLOCK_N': 128, 'BLOCK_K': 32}, num_stages=4,
-        #               num_warps=4),
-        # triton.Config({'BLOCK_M': 128, 'BLOCK_N': 32, 'BLOCK_K': 32}, num_stages=4,
-        #               num_warps=4),
-        # triton.Config({'BLOCK_M': 64, 'BLOCK_N': 32, 'BLOCK_K': 32}, num_stages=5,
-        #               num_warps=2),
-        # triton.Config({'BLOCK_M': 32, 'BLOCK_N': 64, 'BLOCK_K': 32}, num_stages=5,
-        #               num_warps=2),
-        # Good config for fp8 inputs.
-        # triton.Config({'BLOCK_M': 128, 'BLOCK_N': 256, 'BLOCK_K': 128}, num_stages=3,
-        #               num_warps=8),
-        # triton.Config({'BLOCK_M': 256, 'BLOCK_N': 128, 'BLOCK_K': 128}, num_stages=3,
-        #               num_warps=8),
-        # triton.Config({'BLOCK_M': 256, 'BLOCK_N': 64, 'BLOCK_K': 128}, num_stages=4,
-        #               num_warps=4),
-        # triton.Config({'BLOCK_M': 64, 'BLOCK_N': 256, 'BLOCK_K': 128}, num_stages=4,
-        #               num_warps=4),
-        # triton.Config({'BLOCK_M': 128, 'BLOCK_N': 128, 'BLOCK_K': 128}, num_stages=4,
-        #               num_warps=4),
-        # triton.Config({'BLOCK_M': 128, 'BLOCK_N': 64, 'BLOCK_K': 64}, num_stages=4,
-        #               num_warps=4),
-        # triton.Config({'BLOCK_M': 64, 'BLOCK_N': 128, 'BLOCK_K': 64}, num_stages=4,
-        #               num_warps=4),
-        # triton.Config({'BLOCK_M': 128, 'BLOCK_N': 32, 'BLOCK_K': 64}, num_stages=4,
-        #               num_warps=4)
-    ],
-    key=["M", "N", "K"]
-)
+def get_configs():
+    return [
+        triton.Config({"BLOCK_N": n, "BLOCK_M" : m, "BLOCK_K" : k}, num_warps=num_warps)
+        for n, m, k, num_warps in itertools.product(
+            [32, 64], [32, 64], [32, 64], [1, 2, 4, 8]
+        )
+    ]
 
+@triton.autotune(configs=get_configs(), key=["N", "M", "K"], cache_results=True)
 @triton.jit
 def _kernel(alpha, beta, C_ptr, A_ptr, B_ptr, 
             M, N, K, 
@@ -90,7 +59,6 @@ def _kernel(alpha, beta, C_ptr, A_ptr, B_ptr,
         else:
             acc += tl.sum(a[:, :, None] * b[None, :, :], axis=1)
 
-
         a_ptrs += BLOCK_K * stride_ak
         b_ptrs += BLOCK_K * stride_bk
         
@@ -103,7 +71,6 @@ def _kernel(alpha, beta, C_ptr, A_ptr, B_ptr,
     Cold   = tl.cast(Cold, tl.float32)
     Cnew   = acc * alpha + Cold * beta
     tl.store(c_ptrs, tl.cast(Cnew, DTYPE), mask=mask)
-
 
 
 def kernel(alpha, beta, C: torch.Tensor, A: torch.Tensor, B: torch.Tensor):
@@ -139,10 +106,6 @@ def kernel(alpha, beta, C: torch.Tensor, A: torch.Tensor, B: torch.Tensor):
     stride_bn = B.stride(1)
     stride_cm = C.stride(0)
     stride_cn = C.stride(1)
-
-    BLOCK_N = 128
-    BLOCK_M = 128
-    BLOCK_K = 32
 
     grid = lambda meta: (
     triton.cdiv(M, meta['BLOCK_M']),  # programs along x (columns)

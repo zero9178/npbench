@@ -4,19 +4,15 @@ import triton.language as tl
 import itertools
 import numpy as np
 
-def generate_config():
-    base = [
-        (64, 4, 3),
-        (128, 4, 3),
-        (32, 4, 3),
-        (128, 8, 4),  
+def get_configs():
+    return [
+        triton.Config({"BLOCK_SIZE_N": block_size}, num_warps=num_warps)
+        for block_size, num_warps in itertools.product(
+            [8, 16, 32, 64, 128], [1, 2, 4, 8]
+        )
     ]
-    return [triton.Config(
-                kwargs={"BLOCK_SIZE_N": n},
-                num_warps=w, num_stages=s)
-            for (n, w, s) in base]
 
-@triton.autotune(configs=generate_config(), key=["N"], cache_results=True)
+@triton.autotune(configs=get_configs(), key=["N"], cache_results=True)
 @triton.jit
 def _kernel(array_1, array_2, a, b, c, N, arr_out, DTYPE: tl.constexpr,
             BLOCK_SIZE_N : tl.constexpr):
