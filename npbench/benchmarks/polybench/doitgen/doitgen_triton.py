@@ -2,6 +2,19 @@
 import triton
 import triton.language as tl
 
+def generate_config():
+    base = [
+        (64, 4, 3),
+        (128, 4, 3),
+        (32, 4, 3),
+        (128, 8, 4),  
+    ]
+    return [triton.Config(
+                kwargs={"BLOCK_SIZE_P": n},
+                num_warps=w, num_stages=s)
+            for (n, w, s) in base]
+
+@triton.autotune(configs=generate_config(), key=["NP"], cache_results=True)
 @triton.jit
 def _kernel(
     NQ,
@@ -29,4 +42,4 @@ def _kernel(
 
 def kernel(NR, NQ, NP, A, C4):
     grid = (NR, NQ)
-    _kernel[grid](NQ, NP, A, C4, BLOCK_SIZE_P = tl.constexpr(64))
+    _kernel[grid](NQ, NP, A, C4)
