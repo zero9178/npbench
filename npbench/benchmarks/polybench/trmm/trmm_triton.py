@@ -4,19 +4,15 @@ import triton.language as tl
 import itertools
 from npbench.infrastructure.triton_utilities import get_1d_tile_offsets
 
-def generate_config():
-    base = [
-        (64, 32, 4, 3),
-        (128, 32, 4, 3),
-        (64, 64, 4, 3),
-        (128, 128, 8, 4),  
+def get_configs():
+    return [
+        triton.Config({"BLOCK_SIZE_N": n, "BLOCK_SIZE_K": k}, num_warps=num_warps)
+        for n, k, num_warps in itertools.product(
+            [8, 16, 32, 64, 128], [8, 16, 32, 64, 128], [1, 2, 4, 8]
+        )
     ]
-    return [triton.Config(
-                kwargs={"BLOCK_SIZE_N": n, "BLOCK_SIZE_K": k},
-                num_warps=w, num_stages=s)
-            for (n, k, w, s) in base]
 
-@triton.autotune(configs=generate_config(), key=["M", "N"], cache_results=True)
+@triton.autotune(configs=get_configs(), key=["M", "N"], cache_results=True)
 @triton.jit
 def _kernel(alpha, A, B, B_out, M, N, DTYPE: tl.constexpr,
             BLOCK_SIZE_N : tl.constexpr, 
