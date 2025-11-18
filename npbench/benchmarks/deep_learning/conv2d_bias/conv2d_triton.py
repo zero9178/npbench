@@ -1,8 +1,23 @@
+import itertools
 import torch
 import triton
 import triton.language as tl
 
 
+def get_conv2d_configs():
+    return [
+        triton.Config({"BLOCK_C_IN": bc}, num_warps=w)
+        for bc, w in itertools.product(
+            [32, 64, 128, 256],  # BLOCK_C_IN options
+            [2, 4, 8]            # num_warps options
+        )
+    ]
+
+
+@triton.autotune(
+    configs=get_conv2d_configs(),
+    key=["C_in", "C_out", "K"],
+)
 @triton.jit
 def _kernel_conv2d(
         input_ptr,
@@ -54,8 +69,6 @@ def conv2d_bias(input, weights, bias):
 
     output = torch.empty((N, H_out, W_out, C_out), device=input.device, dtype=input.dtype)
 
-    BLOCK_C_IN = min(128, triton.next_power_of_2(C_in))
-
     grid = (N * H_out * W_out, C_out, 1)
     _kernel_conv2d[grid](
         input, weights, output, bias,
@@ -63,7 +76,6 @@ def conv2d_bias(input, weights, bias):
         K,
         C_out,
         H_out, W_out,
-        BLOCK_C_IN=BLOCK_C_IN
     )
 
     return output
