@@ -1,8 +1,34 @@
+import itertools
 import torch
 import triton
 import triton.language as tl
 
 
+def get_boundary_configs():
+    return [
+        triton.Config({"BLOCK_SIZE": bs}, num_warps=w)
+        for bs, w in itertools.product(
+            [64, 128, 256, 512],  # BLOCK_SIZE options
+            [2, 4, 8]             # num_warps options
+        )
+    ]
+
+
+def get_2d_configs():
+    return [
+        triton.Config({"BLOCK_SIZE_X": bx, "BLOCK_SIZE_Y": by}, num_warps=w)
+        for bx, by, w in itertools.product(
+            [8, 16, 32],   # BLOCK_SIZE_X options
+            [8, 16, 32],   # BLOCK_SIZE_Y options
+            [2, 4, 8]      # num_warps options
+        )
+    ]
+
+
+@triton.autotune(
+    configs=get_boundary_configs(),
+    key=["ny"],
+)
 @triton.jit
 def _kernel_set_boundary(ey_ptr, fict_val, ny, BLOCK_SIZE: tl.constexpr):
     """Set ey[0, :] = fict_val"""
@@ -12,6 +38,10 @@ def _kernel_set_boundary(ey_ptr, fict_val, ny, BLOCK_SIZE: tl.constexpr):
     tl.store(ey_ptr + offsets, fict_val, mask=mask)
 
 
+@triton.autotune(
+    configs=get_2d_configs(),
+    key=["nx", "ny"],
+)
 @triton.jit
 def _kernel_update_ey(ey_ptr, hz_ptr, nx, ny, BLOCK_SIZE_X: tl.constexpr, BLOCK_SIZE_Y: tl.constexpr):
     """Update ey[1:, :] -= 0.5 * (hz[1:, :] - hz[:-1, :])"""
@@ -41,6 +71,10 @@ def _kernel_update_ey(ey_ptr, hz_ptr, nx, ny, BLOCK_SIZE_X: tl.constexpr, BLOCK_
     tl.store(ey_ptr + offsets_2d, ey_new, mask=mask_2d)
 
 
+@triton.autotune(
+    configs=get_2d_configs(),
+    key=["nx", "ny"],
+)
 @triton.jit
 def _kernel_update_ex(ex_ptr, hz_ptr, nx, ny, BLOCK_SIZE_X: tl.constexpr, BLOCK_SIZE_Y: tl.constexpr):
     """Update ex[:, 1:] -= 0.5 * (hz[:, 1:] - hz[:, :-1])"""
@@ -72,6 +106,10 @@ def _kernel_update_ex(ex_ptr, hz_ptr, nx, ny, BLOCK_SIZE_X: tl.constexpr, BLOCK_
     tl.store(ex_ptr + offsets_2d, ex_new, mask=mask_2d)
 
 
+@triton.autotune(
+    configs=get_2d_configs(),
+    key=["nx", "ny"],
+)
 @triton.jit
 def _kernel_update_hz(hz_ptr, ex_ptr, ey_ptr, nx, ny, BLOCK_SIZE_X: tl.constexpr, BLOCK_SIZE_Y: tl.constexpr):
     """Update hz[:-1, :-1] -= 0.7 * (ex[:-1, 1:] - ex[:-1, :-1] + ey[1:, :-1] - ey[:-1, :-1])"""
@@ -108,24 +146,20 @@ def _kernel_update_hz(hz_ptr, ex_ptr, ey_ptr, nx, ny, BLOCK_SIZE_X: tl.constexpr
 def kernel(TMAX, ex, ey, hz, _fict_):
     nx, ny = ex.shape
 
-    BLOCK_SIZE = 256
-    BLOCK_SIZE_X = 16
-    BLOCK_SIZE_Y = 16
-
-    grid_boundary = lambda meta: (triton.cdiv(ny, BLOCK_SIZE),)
-    grid_2d_ey = lambda meta: (triton.cdiv(nx - 1, BLOCK_SIZE_X), triton.cdiv(ny, BLOCK_SIZE_Y))
-    grid_2d_ex = lambda meta: (triton.cdiv(nx, BLOCK_SIZE_X), triton.cdiv(ny - 1, BLOCK_SIZE_Y))
-    grid_2d_hz = lambda meta: (triton.cdiv(nx - 1, BLOCK_SIZE_X), triton.cdiv(ny - 1, BLOCK_SIZE_Y))
+    grid_boundary = lambda meta: (triton.cdiv(ny, meta['BLOCK_SIZE']),)
+    grid_2d_ey = lambda meta: (triton.cdiv(nx - 1, meta['BLOCK_SIZE_X']), triton.cdiv(ny, meta['BLOCK_SIZE_Y']))
+    grid_2d_ex = lambda meta: (triton.cdiv(nx, meta['BLOCK_SIZE_X']), triton.cdiv(ny - 1, meta['BLOCK_SIZE_Y']))
+    grid_2d_hz = lambda meta: (triton.cdiv(nx - 1, meta['BLOCK_SIZE_X']), triton.cdiv(ny - 1, meta['BLOCK_SIZE_Y']))
 
     for t in range(TMAX):
         # Set boundary
-        _kernel_set_boundary[grid_boundary](ey, _fict_[t].item(), ny, BLOCK_SIZE=BLOCK_SIZE)
+        _kernel_set_boundary[grid_boundary](ey, _fict_[t].item(), ny)
 
         # Update ey
-        _kernel_update_ey[grid_2d_ey](ey, hz, nx, ny, BLOCK_SIZE_X=BLOCK_SIZE_X, BLOCK_SIZE_Y=BLOCK_SIZE_Y)
+        _kernel_update_ey[grid_2d_ey](ey, hz, nx, ny)
 
         # Update ex
-        _kernel_update_ex[grid_2d_ex](ex, hz, nx, ny, BLOCK_SIZE_X=BLOCK_SIZE_X, BLOCK_SIZE_Y=BLOCK_SIZE_Y)
+        _kernel_update_ex[grid_2d_ex](ex, hz, nx, ny)
 
         # Update hz
-        _kernel_update_hz[grid_2d_hz](hz, ex, ey, nx, ny, BLOCK_SIZE_X=BLOCK_SIZE_X, BLOCK_SIZE_Y=BLOCK_SIZE_Y)
+        _kernel_update_hz[grid_2d_hz](hz, ex, ey, nx, ny)
