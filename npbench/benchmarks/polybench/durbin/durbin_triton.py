@@ -13,8 +13,7 @@ def generate_config():
     cross-warp optimizations.
     """
     return [triton.Config(kwargs={'BLOCK_SIZE': b}, num_warps=w) for b, w in
-            itertools.product([8, 16, 32, 64, 128], [1, 2, 4, 8])
-            if b != 128]
+            itertools.product([8, 16, 32, 64], [1, 2, 4, 8])]
 
 
 @triton.autotune(configs=generate_config(),
