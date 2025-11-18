@@ -1,83 +1,79 @@
-import itertools
-
-import torch
 import triton
 import triton.language as tl
+import torch
 
-
-
-def generate_config():
-    """
-    Generates many config instances for the purpose of auto-tuning.
-    'num_warps' is especially useful for performance when reduction is involved as it may enable or disable certain
-    cross-warp optimizations.
-    """
-    return [triton.Config(kwargs={'BLOCK_SIZE': b}, num_warps=w) for b, w in
-            itertools.product([8, 16, 32, 64], [1, 2, 4, 8])]
-
-
-@triton.autotune(configs=generate_config(),
-                 key=[],
-                 cache_results=True
-                 )
+@triton.autotune(
+    configs=[
+        triton.Config({
+            "N_BLOCK_SIZE": bs,
+        }, num_warps=nw)
+        for bs in [1024, 2048, 4096, 8192]
+        for nw in [1, 2, 4, 8]
+    ], key=["N"]
+)
 @triton.jit
-def _kernel_durbin_iteration_cdot(
-        r_flipped_ptr,  # pointer to flipped r
-        y_ptr,  # pointer to y (read and write)
-        out_dot_ptr,
-        k,  # scalar: current iteration
-        BLOCK_SIZE: tl.constexpr,
+def durbin_kernel(
+    y_ptr,
+    r_orig_ptr,
+    N,
+    N_BLOCK_SIZE: tl.constexpr, 
 ):
-    pid = tl.program_id(0)
-    offsets = pid * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)
-    mask = offsets < k
+    
+    r0 = tl.load(r_orig_ptr + tl.program_id(0) * tl.program_id(1) * 0) 
+    
+    alpha = -r0
+    
+    beta = tl.cast(1.0, tl.float64)
+    
+    tl.store(y_ptr, alpha)
 
-    r_vals = tl.load(r_flipped_ptr + offsets, mask=mask, other=0.0)
-    y_vals = tl.load(y_ptr + offsets, mask=mask, other=0.0)
+    k = tl.constexpr(1)
+    while k < N:
+        beta_new = beta * (1.0 - alpha * alpha)
+        
+        r_k = tl.load(r_orig_ptr + k)
 
-    partial_dot = tl.sum(r_vals * y_vals)
+        dot_product_sum = tl.cast(0.0, tl.float64)
+        
+        j_block = tl.arange(0, N_BLOCK_SIZE)
+        
+        for j_start in range(0, k, N_BLOCK_SIZE):
+            j = j_start + j_block         
+            j_rev = (k - 1) - j           
+            
+            mask = j < k
+            
+            r_orig_vec = tl.load(r_orig_ptr + j, mask=mask, other=0.0)
+            y_rev_vec = tl.load(y_ptr + j_rev, mask=mask, other=0.0)
+            
+            dot_product_sum += tl.sum(r_orig_vec * y_rev_vec, axis=0)
+            
+        numerator = r_k + dot_product_sum
+            
+        alpha_new = -numerator / beta_new
+        for j_start in range(0, k, N_BLOCK_SIZE):
+            j = j_start + j_block
+            j_rev = (k - 1) - j
+            
+            mask = j < k
+            
+            y_old = tl.load(y_ptr + j, mask=mask, other=0.0)
+            y_rev = tl.load(y_ptr + j_rev, mask=mask, other=0.0)
+            y_new = y_old + alpha_new * y_rev
+            tl.store(y_ptr + j, y_new, mask=mask)
+            
+        tl.store(y_ptr + k, alpha_new)
 
-    tl.atomic_add(out_dot_ptr, partial_dot)
+        alpha = alpha_new
+        beta = beta_new
+        k += 1
 
-@triton.autotune(configs=generate_config(),
-                 key=[],
-                 cache_results=True
-                 )
-@triton.jit
-def _kernel_durbin_iteration_update_uptok(
-      y_ptr,              # pointer to y (read and write)
-      alpha,              # scalar: the alpha value
-      k,                  # scalar: how many elements to update
-      BLOCK_SIZE: tl.constexpr,
-):
-    pid = tl.program_id(0)
-    offsets = pid*BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)
-    mask = offsets < k
-
-    y_vals = tl.load(y_ptr+offsets, mask=mask, other=0.0) #id for add is 0
-    y_flipped_vals = tl.load(y_ptr+(k-1-offsets), mask=mask, other=0.0)# wouldn't need another load if the block size was always guaranteed to be bigger than k. could flip in program.
-
-    y_vals += alpha*y_flipped_vals
-
-    tl.store(y_ptr + offsets, y_vals, mask=mask)
-
-
-def kernel(r):
+def kernel(r: torch.Tensor):
     N = r.shape[0]
-    y = torch.empty_like(r)
-    r_flipped = torch.flip(r, dims=[0]) # precompute flipping of r
-
-    alpha = -r[0].item()
-    beta = 1.0
-    y[0] = -r[0]
-    grid_cdot = lambda k_val: lambda meta : (triton.cdiv(k_val, meta['BLOCK_SIZE']),)
-    grid_uptok = lambda k_val: lambda meta : (triton.cdiv(k_val, meta['BLOCK_SIZE']),)
-
-    for k in range(1, N):
-        beta *= 1.0 - alpha * alpha
-        dot_result = torch.zeros(1, dtype=r.dtype, device=r.device)
-        _kernel_durbin_iteration_cdot[grid_cdot(k)](r_flipped,y,dot_result,k)
-        alpha = (- (r[k] + dot_result[0])/beta).item()
-        _kernel_durbin_iteration_update_uptok[grid_uptok(k)](y, alpha, k)
-        y[k] = alpha
-
+    y_out = torch.empty_like(r, dtype=torch.float64, device=r.device)
+    
+    durbin_kernel[(1,)](
+        y_out,
+        r,
+        N,
+    )
