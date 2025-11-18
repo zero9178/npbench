@@ -50,6 +50,19 @@ def _kernel_stencil(A_ptr, N, row_idx, BLOCK_SIZE: tl.constexpr):
   tl.store(A_ptr + row_base + col_offsets, result, mask=col_mask)
 
 
+@triton.jit
+def _kernel_recursive_scan(
+    A_ptr,
+    N,
+):
+    running_val = tl.load(A_ptr)
+    for j in range(1, N - 1):
+        ptr_curr = A_ptr + j
+        curr_val = tl.load(ptr_curr)
+        new_val = (curr_val + running_val) / 9.0
+        tl.store(ptr_curr, new_val)
+        running_val = new_val
+
 
 def kernel(TMAX, N, A):
     grid_stencil = lambda meta: (triton.cdiv(N - 2, meta['BLOCK_SIZE']),)
@@ -61,6 +74,7 @@ def kernel(TMAX, N, A):
             _kernel_stencil[grid_stencil](A, N, i)
 
             # Sequential scan along row i
-            for j in range(1, N - 1):
-                A[i, j] += A[i, j - 1]
-                A[i, j] /= 9.0
+            _kernel_recursive_scan[(1,)](
+                A[i, :],
+                N,
+            )
