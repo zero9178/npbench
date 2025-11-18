@@ -48,7 +48,7 @@ def triton_max(x: torch.Tensor):
 @triton.jit
 def _accumulate_bins_kernel(data_ptr, radius_ptr,
                             sums_ptr, counts_ptr,
-                            N, n_bins, rmax,
+                            N, n_bins, rmax: tl.float64,
                             BLOCK_SIZE: tl.constexpr):
     # axis 0 = bin index; axis 1 = block id over the data
     bin_idx = tl.program_id(axis=0)
