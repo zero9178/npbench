@@ -11,7 +11,7 @@ def kernel(r):
     for k in range(1, r.shape[0]):
         beta *= 1.0 - alpha * alpha
         alpha = -(r[k] + np.dot(np.flip(r[:k]), y[:k])) / beta
-        y[:k] += alpha * np.flip(y[:k]) 
-        y[k] = alpha 
+        y[:k] += alpha * np.flip(y[:k])
+        y[k] = alpha
 
     return y
