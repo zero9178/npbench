@@ -122,8 +122,9 @@ class Test(object):
                         print("{} - {} - validation: SUCCESS".format(frmwrk_name, impl_name))
                     elif not ignore_errors:
                         raise ValueError("{} did not validate!".format(frmwrk_name))
-                except Exception:
+                except Exception as e:
                     print("Failed to run {} validation.".format(self.frmwrk.info["full_name"]))
+                    traceback.print_exception(e)
                     if not ignore_errors:
                         raise
             # Main execution
