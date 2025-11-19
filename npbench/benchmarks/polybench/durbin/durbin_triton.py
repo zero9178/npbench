@@ -60,3 +60,4 @@ def kernel(r: torch.Tensor):
         r,
         N,
     )
+    return y
