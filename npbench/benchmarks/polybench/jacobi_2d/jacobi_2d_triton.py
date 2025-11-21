@@ -7,9 +7,8 @@ def generate_config():
     return [
         triton.Config(kwargs={"BLOCK_SIZE": n}, num_warps=w)
         for n, w in itertools.product(
-            [8, 16, 32, 64, 128], [1, 2, 4, 8]
+            [4, 8, 16, 32, 64], [1, 2, 4, 8]
         )
-        if n != 128
     ]
 
 @triton.autotune(configs=generate_config(), key=["N"], cache_results=True)
@@ -46,13 +45,7 @@ def jacobi2d_step(src_ptr, dst_ptr,
 
 def kernel(TSTEPS: int, A: torch.Tensor, B: torch.Tensor):
     assert A.shape == B.shape and A.ndim == 2 and A.shape[0] == A.shape[1]
-    # Force dtype + contiguity to match reference
-    if A.dtype != torch.float64:
-        A = A.to(torch.float64)
-    if B.dtype != torch.float64:
-        B = B.to(torch.float64)
-    A = A.contiguous()
-    B = B.contiguous()
+    assert A.is_contiguous() and B.is_contiguous() and A.dtype == B.dtype
 
     N = A.shape[0]
 
