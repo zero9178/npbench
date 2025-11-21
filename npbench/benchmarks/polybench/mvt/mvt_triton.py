@@ -28,7 +28,6 @@ def _mvt_kernel(
     A_ptr,
     N,
     BLOCK_SIZE: tl.constexpr,
-    DTYPE: tl.constexpr,
 ):
     pid = tl.program_id(axis=0)
     # - Program i computes x1[i] (using the full row A[i, :])
@@ -61,16 +60,9 @@ def kernel(x1:torch.Tensor, x2:torch.Tensor, y_1:torch.Tensor, y_2:torch.Tensor,
     x2 = x2.contiguous()
     y_1 = y_1.contiguous()
     y_2 = y_2.contiguous()
-
-
-    dtype = A.dtype
-    if dtype == torch.float32:
-        DTYPE = tl.float32
-    else:  # float64
-        DTYPE = tl.float64
     
     N, N = A.shape
     # Grid: one program per i value
     grid = (N,)
 
-    _mvt_kernel[grid](x1, x2, y_1, y_2, A, N, DTYPE = tl.constexpr(DTYPE))
+    _mvt_kernel[grid](x1, x2, y_1, y_2, A, N)
