@@ -90,5 +90,5 @@ def kernel(alpha, A, B):
     # B *= alpha
 
     B_out = torch.empty_like(B) 
-    _kernel[grid](alpha, A, B, B_out, M, N, DTYPE)
+    _kernel[grid](float(alpha), A, B, B_out, M, N, DTYPE)
     B.copy_(B_out)
