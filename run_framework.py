@@ -63,7 +63,7 @@ if __name__ == "__main__":
                         type=str,
                         help="datatype to use",
                         choices=["float32", "float64"],
-                        default="float32")
+                        required=False)
     args = vars(parser.parse_args())
 
     parent_folder = pathlib.Path(__file__).parent.absolute()
