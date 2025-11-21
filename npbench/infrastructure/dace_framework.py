@@ -5,9 +5,8 @@ import traceback
 
 from npbench.infrastructure import Benchmark, Framework, utilities as util
 from typing import Callable, Literal, Sequence, Tuple
-from dace import float32, float64
 
-dc_float = float64
+dc_float = None
 
 class DaceFramework(Framework):
     """ A class for reading and processing framework information. """
@@ -319,4 +318,5 @@ class DaceFramework(Framework):
     
     def set_datatype(self, datatype: Literal['float32'] | Literal['float64']):
         global dc_float
+        from dace import float32, float64
         dc_float = float32 if datatype == 'float32' else float64
