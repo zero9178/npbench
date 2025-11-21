@@ -96,4 +96,4 @@ def kernel(alpha, beta, C, A, B):
     """
 
     N = A.shape[0]
-    _kernel[(N, N)](alpha, beta, C, A, B, N=N, M=A.shape[1])
+    _kernel[(N, N)](float(alpha), float(beta), C, A, B, N=N, M=A.shape[1])
