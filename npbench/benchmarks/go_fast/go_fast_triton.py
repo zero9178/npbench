@@ -68,3 +68,4 @@ def go_fast(A):
     trace = torch.zeros(1, dtype=A.dtype, device=A.device)
     _trace_of_matrix[grid_1d](A, N, trace, DTYPE)
     _add_trace_to_matrix[grid_2d](A, N, trace, DTYPE)
+    return A
