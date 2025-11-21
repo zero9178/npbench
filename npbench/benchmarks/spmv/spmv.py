@@ -7,7 +7,7 @@ def initialize(M, N, nnz, datatype=np.float64):
     from numpy.random import default_rng
     rng = default_rng(42)
 
-    x = rng.random((N, ))
+    x = rng.random((N, ), dtype=datatype)
 
     from scipy.sparse import random
 
