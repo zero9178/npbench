@@ -113,7 +113,7 @@ def kernel(alpha, beta, C: torch.Tensor, A: torch.Tensor, B: torch.Tensor):
     )
 
     # C = alpha A B + beta C
-    _kernel[grid](alpha, beta, C, A, B, 
+    _kernel[grid](float(alpha), float(beta), C, A, B, 
                   M, N, K1,
                   stride_am, stride_ak, 
                   stride_bk, stride_bn, 
