@@ -4,8 +4,10 @@ import pkg_resources
 import traceback
 
 from npbench.infrastructure import Benchmark, Framework, utilities as util
-from typing import Callable, Sequence, Tuple
+from typing import Callable, Literal, Sequence, Tuple
+from dace import float32, float64
 
+dc_float = float64
 
 class DaceFramework(Framework):
     """ A class for reading and processing framework information. """
@@ -314,3 +316,7 @@ class DaceFramework(Framework):
 
         input_params = self.params(bench, impl)
         return ", ".join(["{p}={p}".format(p=p) for p in input_params])
+    
+    def set_datatype(self, datatype: Literal['float32'] | Literal['float64']):
+        global dc_float
+        dc_float = float32 if datatype == 'float32' else float64

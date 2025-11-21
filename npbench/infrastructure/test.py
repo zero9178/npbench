@@ -62,6 +62,7 @@ class Test(object):
                                                                            p=preset,
                                                                            d=datatype if datatype is not None else "default"))
 
+        self.frmwrk.set_datatype(datatype)
         bdata = self.bench.get_data(preset, datatype)
 
         # Run NumPy for validation
