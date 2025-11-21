@@ -3,7 +3,7 @@
 import numpy as np
 
 
-def initialize(C_in, C_out, H, K, N, W):
+def initialize(C_in, C_out, H, K, N, W, datatype):
     from numpy.random import default_rng
     rng = default_rng(42)
     # NHWC data layout
