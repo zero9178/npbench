@@ -80,7 +80,7 @@ def _kernel_row_addition_softmax(
     pid_m = tl.program_id(0)
 
     # Pass 1: compute row max over (A + B)
-    row_max = tl.full((1,), -float("inf"), tl.float32)
+    row_max = tl.full((1,), -float("inf"), dtype=A_ptr.dtype.element_ty)
     col_start = 0
     while col_start < N:
         a, b, _, _ = load_row(A_ptr, B_ptr, N, col_start, pid_m, stride_am, stride_an, BLOCK_SIZE=BLOCK_SIZE)
@@ -90,7 +90,7 @@ def _kernel_row_addition_softmax(
         col_start += BLOCK_SIZE
 
     # Pass 2: compute sum(exp((A+B) - row_max))
-    row_sum = tl.zeros((1,), dtype=tl.float32)
+    row_sum = tl.zeros((1,), dtype=A_ptr.dtype.element_ty)
     col_start = 0
     while col_start < N:
         a, b, _, _ = load_row(A_ptr, B_ptr, N, col_start, pid_m, stride_am, stride_an, BLOCK_SIZE=BLOCK_SIZE)

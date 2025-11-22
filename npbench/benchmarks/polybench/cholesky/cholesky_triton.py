@@ -73,7 +73,6 @@ def kernel(A: torch.Tensor):
     In-place: A[:] = chol(A) + strictly_upper(original A)
     """
     N = A.shape[0]
-    A0 = A.clone()  # keep original upper triangle
 
     stride_am, stride_an = A.stride()
 
