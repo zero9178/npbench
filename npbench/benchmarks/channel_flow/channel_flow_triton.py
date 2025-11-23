@@ -2,9 +2,21 @@ import torch
 import triton
 import triton.language as tl
 
+def get_autotune_config():
+    return [
+        triton.Config(kwargs={"BLOCK_SIZE_X": bx, "BLOCK_SIZE_Y": by}, num_warps=nw)
+        for bx in [8, 16, 32]
+        for by in [8, 16, 32]
+        for nw in [2, 4, 8, 16]
+    ]
+
 # -----------------------------------------------------------------------------
 # Kernel 1: Build Source Term (b)
 # -----------------------------------------------------------------------------
+@triton.autotune(
+    configs=get_autotune_config(),
+    key=["H", "W"]
+)
 @triton.jit
 def build_b_kernel(
     u_ptr, v_ptr, b_ptr,
@@ -61,6 +73,10 @@ def build_b_kernel(
 # -----------------------------------------------------------------------------
 # Kernel 2: Pressure Poisson Step
 # -----------------------------------------------------------------------------
+@triton.autotune(
+    configs=get_autotune_config(),
+    key=["H", "W"]
+)
 @triton.jit
 def pressure_poisson_kernel(
     p_new_ptr, p_old_ptr, b_ptr,
@@ -117,6 +133,10 @@ def pressure_poisson_kernel(
 # -----------------------------------------------------------------------------
 # Kernel 3: Update Velocity
 # -----------------------------------------------------------------------------
+@triton.autotune(
+    configs=get_autotune_config(),
+    key=["H", "W"]
+)
 @triton.jit
 def update_uv_kernel(
     u_new_ptr, v_new_ptr, u_old_ptr, v_old_ptr, p_ptr,
@@ -178,101 +198,47 @@ def update_uv_kernel(
     tl.store(u_new_ptr + center_ptr, un_c - u_adv - u_press + u_diff + F*dt, mask=mask)
     tl.store(v_new_ptr + center_ptr, vn_c - v_adv - v_press + v_diff, mask=mask)
 
-@triton.jit
-def sum_reduce_kernel(
-    x_ptr,
-    output_ptr,
-    n_elements,
-    BLOCK_SIZE: tl.constexpr
-):
-    pid = tl.program_id(0)
-    block_start = pid * BLOCK_SIZE
-    offsets = block_start + tl.arange(0, BLOCK_SIZE)
-    mask = offsets < n_elements
-    
-    # Load data
-    val = tl.load(x_ptr + offsets, mask=mask, other=0.0)
-    
-    # Reduce within the block
-    block_sum = tl.sum(val, axis=0)
-    
-    # Write block partial sum
-    tl.store(output_ptr + pid, block_sum)
-
-def triton_sum(x_tensor, scratch_space):
-    """
-    Computes sum of x_tensor using Triton.
-    """
-    n_elements = x_tensor.numel()
-    BLOCK_SIZE = 1024
-    grid = (triton.cdiv(n_elements, BLOCK_SIZE),)
-    
-    sum_reduce_kernel[grid](
-        x_tensor,
-        scratch_space,
-        n_elements,
-        BLOCK_SIZE=BLOCK_SIZE
-    )
-    
-    # Sum the partials on CPU (fast for small number of blocks)
-    return torch.sum(scratch_space[:grid[0]])
-
-# -----------------------------------------------------------------------------
-# Main Function
-# -----------------------------------------------------------------------------
 
 def channel_flow(nit, u, v, dt, dx, dy, p, rho, nu, F):
-    # Setup
     H, W = u.shape
     
-    # Allocation (Buffers)
     b_dev = torch.zeros_like(u)
     u_buff = torch.zeros_like(u)
     v_buff = torch.zeros_like(v)
     p_buff = torch.zeros_like(p)
     
-    # Pointers Setup (Double Buffering)
-    # We maintain 'curr' and 'next' references.
     u_curr, u_next = u, u_buff
     v_curr, v_next = v, v_buff
     p_curr, p_next = p, p_buff
 
-    # Grid Config
-    BLOCK_X, BLOCK_Y = 16, 16
-    grid = (triton.cdiv(W, BLOCK_X), triton.cdiv(H, BLOCK_Y))
+    grid = lambda meta: (triton.cdiv(W, meta['BLOCK_SIZE_X']), triton.cdiv(H, meta['BLOCK_SIZE_Y']))
     
     udiff = 1.0
     stepcount = 0
 
-    # Initial Sum (Using torch.sum as requested)
     sum_u_curr = torch.sum(u_curr)
 
     while udiff > 0.001:
-        # 1. Build B
         build_b_kernel[grid](
             u_curr, v_curr, b_dev,
             rho, dt, dx, dy,
             u_curr.stride(0), u_curr.stride(1),
-            H, W, BLOCK_SIZE_X=BLOCK_X, BLOCK_SIZE_Y=BLOCK_Y
+            H, W
         )
 
-        # 2. Pressure Poisson (Double buffered internally)
         p_in, p_out = p_curr, p_next
         for _ in range(nit):
             pressure_poisson_kernel[grid](
                 p_out, p_in, b_dev,
                 dx, dy,
                 p_in.stride(0), p_in.stride(1),
-                H, W, BLOCK_SIZE_X=BLOCK_X, BLOCK_SIZE_Y=BLOCK_Y
+                H, W
             )
             p_in, p_out = p_out, p_in # Swap
         
-        # Ensure p_curr holds the valid latest data
         p_curr = p_in
         p_next = p_out 
 
-        # 3. Update Velocity
-        # Ensure walls (row 0 and H-1) are 0 in the destination buffer
         u_next.zero_()
         v_next.zero_()
 
@@ -280,11 +246,10 @@ def channel_flow(nit, u, v, dt, dx, dy, p, rho, nu, F):
             u_next, v_next, u_curr, v_curr, p_curr,
             rho, nu, dt, dx, dy, F,
             u_curr.stride(0), u_curr.stride(1),
-            H, W, BLOCK_SIZE_X=BLOCK_X, BLOCK_SIZE_Y=BLOCK_Y
+            H, W
         )
 
 
-        # convergence check and pointer swap
         sum_u_next = torch.sum(u_next)
         udiff = (sum_u_next - sum_u_curr) / sum_u_next
         sum_u_curr = sum_u_next
