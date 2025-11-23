@@ -316,7 +316,9 @@ class DaceFramework(Framework):
         input_params = self.params(bench, impl)
         return ", ".join(["{p}={p}".format(p=p) for p in input_params])
     
-    def set_datatype(self, datatype: Union[Literal['float32'], Literal['float64']]):
+    def set_datatype(self, datatype: Union[Literal['float32'], Literal['float64'], None]):
+        # We might get None here if no datatype is specified. This is sad since we cannot know the exact datatype here
+        # and we are relying on the fact that frameworks have their default datatypes set to float32.
         global dc_float
         from dace import float32, float64
-        dc_float = float32 if datatype == 'float32' else float64
+        dc_float = float64 if datatype == 'float64' else float32

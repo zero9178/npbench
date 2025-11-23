@@ -1,6 +1,7 @@
 # Copyright 2021 ETH Zurich and the NPBench authors. All rights reserved.
 import time
 import traceback
+import numpy as np
 
 from npbench.infrastructure import (Benchmark, Framework, timeout_decorator as tout, utilities as util)
 from typing import Any, Callable, Dict, Sequence, Tuple, Optional
@@ -64,6 +65,26 @@ class Test(object):
 
         self.frmwrk.set_datatype(datatype)
         bdata = self.bench.get_data(preset, datatype)
+
+        # Some of the input data is taken from float constants defined in the benchmark JSON file.
+        # These constants are stored as Python floats.
+        # However, frameworks like DaCe generally expect scalars to be in a specific datatype (e.g., np.float32 or np.float64).
+        # Since we don't have any information about the expected datatype of these constants in the JSON file,
+        # we try to detect the expected datatype from the input data we got from the benchmark.
+        # Ideally, we would store the expected datatype information in the benchmark JSON file directly so we don't have to guess here.
+        dtypes = set(
+            type(v) for v in bdata.values() if type(v) in [np.float32, np.float64]
+        )
+        dtypes |= set(type(v.dtype.type()) for v in bdata.values() if type(v) is np.ndarray and v.dtype in [np.float32, np.float64])
+        if len(dtypes) > 1:
+            raise ValueError("Inconsistent datatypes detected in benchmark data: mixture of float32 and float64 values.")
+        print(dtypes)
+        if len(dtypes) == 1:
+            detected_dtype = dtypes.pop()
+            for k, v in bdata.items():
+                if type(v) is float:
+                    bdata[k] = detected_dtype(v)
+        print({k: type(v) for k, v in bdata.items()})
 
         # Run NumPy for validation
         if validate and self.frmwrk.fname != "numpy" and self.numpy:
