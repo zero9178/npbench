@@ -239,17 +239,17 @@ def channel_flow(nit, u, v, dt, dx, dy, p, rho, nu, F):
     sum_u_curr = torch.sum(u_curr)
 
     while udiff > 0.001:
-        build_b_kernel[grid](u_curr, v_curr, b_dev, rho, dt, dx, dy, H, W)
+        build_b_kernel[grid](u_curr, v_curr, b_dev, float(rho), float(dt), float(dx), float(dy), H, W)
 
         p_in, p_out = p_curr, p_next
         for _ in range(nit):
-            pressure_poisson_kernel[grid](p_out, p_in, b_dev, dx, dy, H, W)
+            pressure_poisson_kernel[grid](p_out, p_in, b_dev, float(dx), float(dy), H, W)
             p_in, p_out = p_out, p_in  # Swap
 
         p_curr, p_next = p_in, p_out
 
         update_uv_kernel[grid](
-            u_next, v_next, u_curr, v_curr, p_curr, rho, nu, dt, dx, dy, F, H, W
+            u_next, v_next, u_curr, v_curr, p_curr, float(rho), float(nu), float(dt), float(dx), float(dy), float(F), H, W
         )
 
         sum_u_next = torch.sum(u_next)
