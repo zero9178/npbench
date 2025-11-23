@@ -55,3 +55,4 @@ def kernel(TSTEPS: dc.int64, u: dc_float[N, N]):
         u[1:N - 1, N - 1] = 1.0
         for j in range(N - 2, 0, -1):
             u[1:N - 1, j] = p[1:N - 1, j] * u[1:N - 1, j + 1] + q[1:N - 1, j]
+    return u
