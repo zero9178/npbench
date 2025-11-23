@@ -73,9 +73,6 @@ def build_b_kernel(
     tl.store(b_ptr + center_ptr, result, mask=mask)
 
 
-# -----------------------------------------------------------------------------
-# Kernel 2: Pressure Poisson Step
-# -----------------------------------------------------------------------------
 @triton.autotune(configs=get_autotune_config(), key=["H", "W"])
 @triton.jit
 def pressure_poisson_kernel(
@@ -127,7 +124,6 @@ def pressure_poisson_kernel(
     # --- Wall Logic ---
     # p[0, :] = p[1, :] (dp/dy = 0)
     # p[-1, :] = p[-2, :]
-    # We read the values from p_old to keep it parallel-safe
     val_at_row1 = tl.load(p_old_ptr + (1 * W + pid_x[None, :]), mask=mask_x[None, :])
     val_at_rowHm2 = tl.load(
         p_old_ptr + ((H - 2) * W + pid_x[None, :]), mask=mask_x[None, :]
@@ -141,9 +137,6 @@ def pressure_poisson_kernel(
     tl.store(p_new_ptr + (pid_y[:, None] * W + pid_x[None, :]), result, mask=mask)
 
 
-# -----------------------------------------------------------------------------
-# Kernel 3: Update Velocity
-# -----------------------------------------------------------------------------
 @triton.autotune(configs=get_autotune_config(), key=["H", "W"])
 @triton.jit
 def update_uv_kernel(
@@ -226,10 +219,10 @@ def update_uv_kernel(
 def channel_flow(nit, u, v, dt, dx, dy, p, rho, nu, F):
     H, W = u.shape
 
-    b_dev = torch.zeros_like(u)
-    u_buff = torch.zeros_like(u)
-    v_buff = torch.zeros_like(v)
-    p_buff = torch.zeros_like(p)
+    b_dev = torch.empty_like(u)
+    u_buff = torch.empty_like(u)
+    v_buff = torch.empty_like(v)
+    p_buff = torch.empty_like(p)
 
     u_curr, u_next = u, u_buff
     v_curr, v_next = v, v_buff
