@@ -178,80 +178,126 @@ def update_uv_kernel(
     tl.store(u_new_ptr + center_ptr, un_c - u_adv - u_press + u_diff + F*dt, mask=mask)
     tl.store(v_new_ptr + center_ptr, vn_c - v_adv - v_press + v_diff, mask=mask)
 
+@triton.jit
+def sum_reduce_kernel(
+    x_ptr,
+    output_ptr,
+    n_elements,
+    BLOCK_SIZE: tl.constexpr
+):
+    pid = tl.program_id(0)
+    block_start = pid * BLOCK_SIZE
+    offsets = block_start + tl.arange(0, BLOCK_SIZE)
+    mask = offsets < n_elements
+    
+    # Load data
+    val = tl.load(x_ptr + offsets, mask=mask, other=0.0)
+    
+    # Reduce within the block
+    block_sum = tl.sum(val, axis=0)
+    
+    # Write block partial sum
+    tl.store(output_ptr + pid, block_sum)
+
+def triton_sum(x_tensor, scratch_space):
+    """
+    Computes sum of x_tensor using Triton.
+    """
+    n_elements = x_tensor.numel()
+    BLOCK_SIZE = 1024
+    grid = (triton.cdiv(n_elements, BLOCK_SIZE),)
+    
+    sum_reduce_kernel[grid](
+        x_tensor,
+        scratch_space,
+        n_elements,
+        BLOCK_SIZE=BLOCK_SIZE
+    )
+    
+    # Sum the partials on CPU (fast for small number of blocks)
+    return torch.sum(scratch_space[:grid[0]])
+
 # -----------------------------------------------------------------------------
 # Main Function
 # -----------------------------------------------------------------------------
-def channel_flow(nit, u, v, dt, dx, dy, p, rho, nu, F):
-    # u, v, p are assumed to be PyTorch tensors on the correct device (GPU)
-    # We clone them to float32 if needed, though usually strict types are preferred.
-    
-    u_dev, v_dev, p_dev = u, v, p
-    H, W = u_dev.shape
-    
-    # 2. Allocation
-    b_dev = torch.zeros_like(u_dev)
-    u_new = torch.zeros_like(u_dev)
-    v_new = torch.zeros_like(v_dev)
-    p_new = torch.zeros_like(p_dev)
 
-    # 3. Kernel Configuration
+def channel_flow(nit, u, v, dt, dx, dy, p, rho, nu, F):
+    # Setup
+    H, W = u.shape
+    
+    # Allocation (Buffers)
+    b_dev = torch.zeros_like(u)
+    u_buff = torch.zeros_like(u)
+    v_buff = torch.zeros_like(v)
+    p_buff = torch.zeros_like(p)
+    
+    # Pointers Setup (Double Buffering)
+    # We maintain 'curr' and 'next' references.
+    u_curr, u_next = u, u_buff
+    v_curr, v_next = v, v_buff
+    p_curr, p_next = p, p_buff
+
+    # Grid Config
     BLOCK_X, BLOCK_Y = 16, 16
     grid = (triton.cdiv(W, BLOCK_X), triton.cdiv(H, BLOCK_Y))
     
     udiff = 1.0
     stepcount = 0
 
-    # 4. Main Simulation Loop
+    # Initial Sum (Using torch.sum as requested)
+    sum_u_curr = torch.sum(u_curr)
+
     while udiff > 0.001:
-        # Step A: Build 'b' (Source term)
+        # 1. Build B
         build_b_kernel[grid](
-            u_dev, v_dev, b_dev,
+            u_curr, v_curr, b_dev,
             rho, dt, dx, dy,
-            u_dev.stride(0), u_dev.stride(1),
+            u_curr.stride(0), u_curr.stride(1),
             H, W, BLOCK_SIZE_X=BLOCK_X, BLOCK_SIZE_Y=BLOCK_Y
         )
 
-        # Step B: Pressure Poisson (iterative)
-        # We use double buffering for P
-        current_p = p_dev
-        next_p = p_new
-        
+        # 2. Pressure Poisson (Double buffered internally)
+        p_in, p_out = p_curr, p_next
         for _ in range(nit):
             pressure_poisson_kernel[grid](
-                next_p, current_p, b_dev,
+                p_out, p_in, b_dev,
                 dx, dy,
-                current_p.stride(0), current_p.stride(1),
+                p_in.stride(0), p_in.stride(1),
                 H, W, BLOCK_SIZE_X=BLOCK_X, BLOCK_SIZE_Y=BLOCK_Y
             )
-            # Swap buffers
-            current_p, next_p = next_p, current_p
+            p_in, p_out = p_out, p_in # Swap
         
-        # Ensure 'p_dev' holds the latest pressure for the next step
-        p_latest = current_p 
+        # Ensure p_curr holds the valid latest data
+        p_curr = p_in
+        p_next = p_out 
 
-        # Step C: Update Velocity
-        # Reset new buffers to 0 to ensure Walls (row 0 and H-1) are 0.
-        u_new.zero_()
-        v_new.zero_()
+        # 3. Update Velocity
+        # Ensure walls (row 0 and H-1) are 0 in the destination buffer
+        u_next.zero_()
+        v_next.zero_()
 
         update_uv_kernel[grid](
-            u_new, v_new, u_dev, v_dev, p_latest,
+            u_next, v_next, u_curr, v_curr, p_curr,
             rho, nu, dt, dx, dy, F,
-            u_dev.stride(0), u_dev.stride(1),
+            u_curr.stride(0), u_curr.stride(1),
             H, W, BLOCK_SIZE_X=BLOCK_X, BLOCK_SIZE_Y=BLOCK_Y
         )
 
-        # Step D: Convergence Check
-        sum_u_old = torch.sum(u_dev)
-        sum_u_new = torch.sum(u_new)
-        udiff = (sum_u_new - sum_u_old) / sum_u_new
-        
-        # Step E: Update references for next iteration
-        # We copy u_new back to u_dev so the loop continues correctly
-        u_dev.copy_(u_new)
-        v_dev.copy_(v_new)
-        p_dev.copy_(p_latest)
+
+        # convergence check and pointer swap
+        sum_u_next = torch.sum(u_next)
+        udiff = (sum_u_next - sum_u_curr) / sum_u_next
+        sum_u_curr = sum_u_next
+        u_curr, u_next = u_next, u_curr
+        v_curr, v_next = v_next, v_curr
         
         stepcount += 1
+
+    if u_curr is not u:
+        u.copy_(u_curr)
+    if v_curr is not v:
+        v.copy_(v_curr)
+    if p_curr is not p:
+        p.copy_(p_curr)
         
     return stepcount
