@@ -78,13 +78,11 @@ class Test(object):
         dtypes |= set(type(v.dtype.type()) for v in bdata.values() if type(v) is np.ndarray and v.dtype in [np.float32, np.float64])
         if len(dtypes) > 1:
             raise ValueError("Inconsistent datatypes detected in benchmark data: mixture of float32 and float64 values.")
-        print(dtypes)
         if len(dtypes) == 1:
             detected_dtype = dtypes.pop()
             for k, v in bdata.items():
                 if type(v) is float:
                     bdata[k] = detected_dtype(v)
-        print({k: type(v) for k, v in bdata.items()})
 
         # Run NumPy for validation
         if validate and self.frmwrk.fname != "numpy" and self.numpy:
