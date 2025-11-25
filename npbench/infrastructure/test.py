@@ -104,7 +104,7 @@ class Test(object):
             dwarf = self.bench.info["dwarf"]
         version = self.frmwrk.version()
 
-        @tout.exit_after(timeout)
+        #@tout.exit_after(timeout)
         def first_execution(impl, impl_name):
             return self._execute(self.frmwrk, impl, impl_name, "first/validation", context, 1, ignore_errors)
 
