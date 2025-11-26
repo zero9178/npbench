@@ -8,7 +8,7 @@ def get_configs():
     return [
         triton.Config({"BLOCK_SIZE_N": block_size}, num_warps=num_warps)
         for block_size, num_warps in itertools.product(
-            [8, 16, 32, 64, 128], [1, 2, 4, 8]
+            [8, 16, 32, 64, 128, 256], [1, 2, 4, 8, 16, 32]
         )
     ]
 
@@ -43,8 +43,8 @@ def _add_trace_to_matrix(A, N, trace, DTYPE: tl.constexpr,
 
     pid_n = tl.program_id(axis=0)
     pid_m = tl.program_id(axis=1)
-    rows = pid_n * BLOCK_SIZE_N + tl.arange(0, BLOCK_SIZE_N)
-    cols = pid_m * BLOCK_SIZE_N + tl.arange(0, BLOCK_SIZE_N)
+    rows = pid_n * BLOCK_SIZE_N + tl.arange(0, BLOCK_SIZE_N)[:, None]
+    cols = pid_m * BLOCK_SIZE_N + tl.arange(0, BLOCK_SIZE_N)[None, :]
     row_mask = rows < N
     col_mask = cols < N
 
@@ -52,6 +52,7 @@ def _add_trace_to_matrix(A, N, trace, DTYPE: tl.constexpr,
     tr =  tl.load(trace)
     res = a_matrix + tr
     tl.store(A + rows * N + cols, res, mask=row_mask & col_mask)
+
 
 # expected the name of the kernel to be "go_fast" for some reason, error otherwise
 def go_fast(A):
