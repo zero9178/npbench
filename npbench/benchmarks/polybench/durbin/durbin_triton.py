@@ -68,9 +68,8 @@ def durbin_kernel(
 
 def kernel(r: torch.Tensor):
     N = r.shape[0]
-    r_f64 = r.to(torch.float64)
-    y = torch.empty_like(r_f64)
-    y_temp = torch.empty_like(r_f64)
+    y = torch.empty_like(r)
+    y_temp = torch.empty_like(r)
 
-    durbin_kernel[(1,)](y, y_temp, r_f64, N)
+    durbin_kernel[(1,)](y, y_temp, r, N)
     return y.to(r.dtype)
