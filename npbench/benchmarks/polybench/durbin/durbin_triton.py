@@ -1,3 +1,5 @@
+import itertools
+
 import triton
 import triton.language as tl
 import torch
@@ -6,8 +8,7 @@ import torch
 @triton.autotune(
     configs=[
         triton.Config({"BLOCK_SIZE": bs}, num_warps=nw)
-        for bs in [64, 128, 256, 512]
-        for nw in [1, 2, 4, 8]
+        for bs, nw in itertools.product([64, 128, 256, 512], [1, 2, 4, 8])
     ],
     key=["N"],
 )
