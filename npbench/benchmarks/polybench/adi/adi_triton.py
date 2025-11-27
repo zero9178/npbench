@@ -245,10 +245,6 @@ def kernel(TSTEPS, N, u):
     assert u.is_cuda, "u must be a CUDA tensor"
     assert u.shape == (N, N)
 
-    dtype = u.dtype
-    assert dtype in (torch.float32, torch.float64)
-    DTYPE = tl.float32 if dtype == torch.float32 else tl.float64
-
     v = torch.empty_like(u)
     p = torch.empty_like(u)
     q = torch.empty_like(u)
