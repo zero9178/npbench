@@ -2,6 +2,15 @@ import triton
 import triton.language as tl
 import torch
 
+
+@triton.autotune(
+    configs=[
+        triton.Config({"BLOCK_SIZE": bs}, num_warps=nw)
+        for bs in [64, 128, 256, 512]
+        for nw in [1, 2, 4, 8]
+    ],
+    key=["N"],
+)
 @triton.jit
 def durbin_kernel(
     y_ptr,
@@ -21,23 +30,27 @@ def durbin_kernel(
 
         dot_product_sum = alpha * 0.0
         for j_start in tl.range(0, k, BLOCK_SIZE):
-            j = j_start + j_block         
-            j_rev = (k - 1) - j           
-            
+            j = j_start + j_block
+            j_rev = (k - 1) - j
+
             mask = j < k
             j_rev_clamped = tl.where(mask, j_rev, 0)
             r_vec = tl.load(r_ptr + j_rev_clamped, mask=mask, other=0.0)
             y_vec = tl.load(y_ptr + j, mask=mask, other=0.0)
             dot_product_sum += tl.sum(r_vec * y_vec, axis=0)
-            
+
         alpha = -(r_k + dot_product_sum) / beta
 
+        # Copy y[:k] to temp buffer
         for j_start in tl.range(0, k, BLOCK_SIZE):
             j = j_start + j_block
             mask = j < k
             y_val = tl.load(y_ptr + j, mask=mask, other=0.0)
             tl.store(y_temp_ptr + j, y_val, mask=mask)
 
+        tl.debug_barrier()
+
+        # Update y[:k] using temp buffer
         for j_start in tl.range(0, k, BLOCK_SIZE):
             j = j_start + j_block
             j_rev = (k - 1) - j
@@ -49,20 +62,15 @@ def durbin_kernel(
             y_rev_vec = tl.load(y_temp_ptr + j_rev_clamped, mask=mask, other=0.0)
             y_new = y_old + alpha * y_rev_vec
             tl.store(y_ptr + j, y_new, mask=mask)
-            
+
         tl.store(y_ptr + k, alpha)
+
 
 def kernel(r: torch.Tensor):
     N = r.shape[0]
-    y = torch.empty_like(r)
-    y_temp = torch.empty_like(r)
-    BLOCK_SIZE = 256
+    r_f64 = r.to(torch.float64)
+    y = torch.empty_like(r_f64)
+    y_temp = torch.empty_like(r_f64)
 
-    durbin_kernel[(1,)](
-        y,
-        y_temp,
-        r,
-        N,
-        BLOCK_SIZE,
-    )
-    return y
+    durbin_kernel[(1,)](y, y_temp, r_f64, N)
+    return y.to(r.dtype)
