@@ -73,4 +73,4 @@ def kernel(r: torch.Tensor):
     y_temp = torch.empty_like(r)
 
     durbin_kernel[(1,)](y, y_temp, r, N)
-    return y.to(r.dtype)
+    return y
