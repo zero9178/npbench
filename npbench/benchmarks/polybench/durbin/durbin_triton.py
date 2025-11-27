@@ -68,7 +68,7 @@ def kernel(r):
     r_flipped = torch.flip(r, dims=[0]) # precompute flipping of r
 
     alpha = -r[0].item()
-    beta = 1.0
+    beta = alpha * 0.0 + 1.0 # type checking
     y[0] = -r[0]
     grid_cdot = lambda k_val: lambda meta : (triton.cdiv(k_val, meta['BLOCK_SIZE']),)
     grid_uptok = lambda k_val: lambda meta : (triton.cdiv(k_val, meta['BLOCK_SIZE']),)
@@ -80,4 +80,6 @@ def kernel(r):
         alpha = (- (r[k] + dot_result[0])/beta).item()
         _kernel_durbin_iteration_update_uptok[grid_uptok(k)](y, alpha, k)
         y[k] = alpha
+
+    return y
 
