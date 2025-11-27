@@ -22,7 +22,6 @@
         },
         "input_args": ["utens_stage", "u_stage", "wcon", "u_pos", "utens", "dtr_stage"],
         "array_args": ["utens_stage", "u_stage", "wcon", "u_pos", "utens"],
-        "output_args": ["utens_stage"],
-        "norm_error": 1e-4
+        "output_args": ["utens_stage"]
     }
 }
