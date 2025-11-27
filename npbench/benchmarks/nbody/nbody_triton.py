@@ -3,7 +3,6 @@ import triton
 import triton.language as tl
 import itertools
 from triton.language.extra import libdevice
-from npbench.infrastructure.triton_utilities import kernel_mean
 
 def get_configs():
     return [
@@ -269,4 +268,4 @@ def nbody(mass, pos, vel, N, Nt, dt, G, softening):
         KE[i + 1] = 0.5 * torch.sum(mass * vel**2)
         PE[i + 1] = pe_acc[0]
 
-    return KE.cpu().numpy(), PE.cpu().numpy()
+    return KE, PE
