@@ -26,9 +26,27 @@ def powers_of_2(start, end=None):
 
 @triton.jit()
 def complex_mul(a_real, a_imag, b_real, b_imag):
+    """
+    Same as 'complex_mul2', but the real and imaginary components are passed and returned separately.
+    """
     num_real = a_real * b_real - a_imag * b_imag
     num_imag = a_real * b_imag + a_imag * b_real
     return num_real, num_imag
+
+
+@triton.jit()
+def complex_mul2(a, b):
+    """
+    Performs a multiply operation of tiles of complex numbers.
+    The tiles may be of any shape where the last dimension is of size 2.
+    It represents the real and complex component respectively.
+    Returns a tile broadcast to the common shape where the last dimension is guaranteed to be of size 2.
+    """
+
+    a_real, a_imag = tl.split(a)
+    b_real, b_imag = tl.split(b)
+    c_real, c_imag = complex_mul(a_real, a_imag, b_real, b_imag)
+    return tl.join(c_real, c_imag)
 
 
 @triton.jit()
@@ -37,6 +55,32 @@ def complex_div(a_real, a_imag, b_real, b_imag):
     denom_real, _ = complex_mul(b_real, b_imag, b_real, -b_imag)
     return num_real / denom_real, num_imag / denom_real
 
+
+@triton.jit()
+def micro_matmul(a, b):
+    """
+    Performs a matrix multiply of the tiles 'a' and 'b'.
+    'a' should be of shape (N, K), while 'b' should be of shape (K, M).
+
+    Returns a tile of shape (N, M).
+    Note: Always works unlike 'tl.dot', regardless of datatype and shape.
+    """
+    return tl.sum(a[:, :, None] * b[None, :, :], axis=1)
+
+
+@triton.jit()
+def complex_matmul2(a, b):
+    """
+    Performs a matrix multiply of the tiles 'a' and 'b'.
+    'a' should be of shape (N, K, 2), while 'b' should be of shape (K, M, 2).
+    The last dimension represents the real and imaginary component respectively.
+
+    Returns a tile of shape (N, M, 2).
+    """
+    a_real, a_imag = tl.split(a)
+    b_real, b_imag = tl.split(b)
+    return tl.join(micro_matmul(a_real, b_real) - micro_matmul(a_imag, b_imag),
+                   micro_matmul(a_real, b_imag) + micro_matmul(a_imag, b_real))
 
 def derive_launch_arguments(extra_kw: Callable):
     """
@@ -81,12 +125,12 @@ def use_grid(grid: Callable):
 
 
 @triton.jit
-def get_4d_tile_offsets(c0, c1, c2, c3,
+def get_6d_tile_offsets(c0, c1, c2, c3, c4, c5,
                         tile_dims: tl.constexpr,
                         matrix_dims: tl.constexpr):
     """
     Generates a tile of offsets that when added to a tensor of dimensions 'matrix_dims',
-    yields a tile of size 'tile_dims' positioned at (c0, c1, c2, c3) within the tensor.
+    yields a tile of size 'tile_dims' positioned at the given coordinates within the tensor.
 
     All coordinates and dimensions are in 'number of elements' unit.
     Assumes a fully contiguous tensor.
@@ -99,19 +143,40 @@ def get_4d_tile_offsets(c0, c1, c2, c3,
     n1: tl.constexpr = tile_dims[1]
     n2: tl.constexpr = tile_dims[2]
     n3: tl.constexpr = tile_dims[3]
-    m0, m1, m2, m3 = matrix_dims
+    n4: tl.constexpr = tile_dims[4]
+    n5: tl.constexpr = tile_dims[5]
+    m0, m1, m2, m3, m4, m5 = matrix_dims
     c0 += tl.arange(0, n0)
     c1 += tl.arange(0, n1)
     c2 += tl.arange(0, n2)
     c3 += tl.arange(0, n3)
+    c4 += tl.arange(0, n4)
+    c5 += tl.arange(0, n5)
 
-    c0 = c0[:, None, None, None]
-    c1 = c1[None, :, None, None]
-    c2 = c2[None, None, :, None]
-    c3 = c3[None, None, None, :]
+    c0 = c0[:, None, None, None, None, None]
+    c1 = c1[None, :, None, None, None, None]
+    c2 = c2[None, None, :, None, None, None]
+    c3 = c3[None, None, None, :, None, None]
+    c4 = c4[None, None, None, None, :, None]
+    c5 = c5[None, None, None, None, None, :]
 
-    return (c0 * m1 * m2 * m3 + c1 * m2 * m3 + c2 * m3 + c3,
-            (c0 < m0) & (c1 < m1) & (c2 < m2) & (c3 < m3))
+    return (c0 * m1 * m2 * m3 * m4 * m5 + c1 * m2 * m3 * m4 * m5 + c2 * m3 * m4 * m5 + c3 * m4 * m5 + c4 * m5 + c5,
+            (c0 < m0) & (c1 < m1) & (c2 < m2) & (c3 < m3) & (c4 < m4) & (c5 < m5))
+
+
+@triton.jit
+def get_4d_tile_offsets(c0, c1, c2, c3,
+                        tile_dims: tl.constexpr,
+                        matrix_dims: tl.constexpr):
+    n0: tl.constexpr = tile_dims[0]
+    n1: tl.constexpr = tile_dims[1]
+    n2: tl.constexpr = tile_dims[2]
+    n3: tl.constexpr = tile_dims[3]
+    m0, m1, m2, m3 = matrix_dims
+    tile, mask = get_6d_tile_offsets(0, 0, c0, c1, c2, c3,
+                                     tile_dims=(1, 1, n0, n1, n2, n3),
+                                     matrix_dims=(1, 1, m0, m1, m2, m3))
+    return tl.reshape(tile, *tile_dims), tl.reshape(mask, *tile_dims)
 
 
 @triton.jit
