@@ -9,11 +9,33 @@ currently commented out for faster development.
 import itertools
 import operator
 from functools import reduce
-from typing import Callable
+from typing import Callable, overload
 
 import torch
 import triton
 import triton.language as tl
+
+def powers_of_2(start, end=None):
+    if end is None:
+        end = start
+        start = 0
+    while start <= end:
+        yield 1 << start
+        start += 1
+
+
+@triton.jit()
+def complex_mul(a_real, a_imag, b_real, b_imag):
+    num_real = a_real * b_real - a_imag * b_imag
+    num_imag = a_real * b_imag + a_imag * b_real
+    return num_real, num_imag
+
+
+@triton.jit()
+def complex_div(a_real, a_imag, b_real, b_imag):
+    num_real, num_imag = complex_mul(a_real, a_imag, b_real, -b_imag)
+    denom_real, _ = complex_mul(b_real, b_imag, b_real, -b_imag)
+    return num_real / denom_real, num_imag / denom_real
 
 
 def derive_launch_arguments(extra_kw: Callable):
