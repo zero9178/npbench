@@ -327,7 +327,7 @@ def _post_process(
                                            matrix_width=NM, matrix_height=NR)
     x_real = tl.load(X_real + tile, mask)
     x_imag = tl.load(X_imag + tile, mask)
-    comp_abs = tl.sqrt(z_real * z_real + z_imag * z_imag)
+    comp_abs = z_real * z_real + z_imag * z_imag
     if comp_abs < 1.0:
         x_real = -x_real
         x_imag = -x_imag
