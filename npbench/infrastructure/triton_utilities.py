@@ -180,6 +180,20 @@ def get_4d_tile_offsets(c0, c1, c2, c3,
 
 
 @triton.jit
+def get_3d_tile_offsets(c0, c1, c2,
+                        tile_dims: tl.constexpr,
+                        matrix_dims: tl.constexpr):
+    n0: tl.constexpr = tile_dims[0]
+    n1: tl.constexpr = tile_dims[1]
+    n2: tl.constexpr = tile_dims[2]
+    m0, m1, m2 = matrix_dims
+    tile, mask = get_4d_tile_offsets(0, c0, c1, c2,
+                                     tile_dims=(1, n0, n1, n2),
+                                     matrix_dims=(1, m0, m1, m2))
+    return tl.reshape(tile, *tile_dims), tl.reshape(mask, *tile_dims)
+
+
+@triton.jit
 def grid_sync(barrier):
     """
     Performs a grid level synchronization among every thread block of the GPU. Threads leave the function as soon as
