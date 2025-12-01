@@ -5,8 +5,7 @@ import torch
 
 @triton.autotune(
     configs=[
-        triton.Config({"BLOCK_SIZE": bs}, num_warps=nw)
-        for bs in [64, 128, 256, 512]
+        triton.Config({}, num_warps=nw)
         for nw in [1, 2, 4, 8]
     ],
     key=["I", "J", "K"],
@@ -23,7 +22,6 @@ def vadv_kernel(
     data_col_ptr,
     dtr_stage,
     I, J, K,
-    BLOCK_SIZE: tl.constexpr,
 ):
     ij_idx = tl.program_id(0)
     i = ij_idx // J
