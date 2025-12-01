@@ -1,5 +1,11 @@
-matplotlib
-numpy
-pandas
-pygount
-scipy
+matplotlib==3.10.7
+numpy==2.3.5
+pandas==2.3.3
+pygount==3.1.0
+scipy==1.16.3
+triton==3.5.1
+dace @ git+https://github.com/spcl/dace.git@7f0fc9114dad049ebc5776d036f7110efffaaf85
+torch==2.9.1
+cupy-cuda12x==13.6.0
+jax[cuda12]==0.7.1
+numba-cuda[cu12]==0.21.2
