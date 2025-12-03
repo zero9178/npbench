@@ -25,17 +25,16 @@ def get_2d_configs():
     ]
 
 
-@triton.autotune(
-    configs=get_boundary_configs(),
-    key=["ny"],
-)
-@triton.jit
-def _kernel_set_boundary(ey_ptr, fict_val, ny, BLOCK_SIZE: tl.constexpr):
-    """Set ey[0, :] = fict_val"""
-    pid = tl.program_id(0)
-    offsets = pid * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)
-    mask = offsets < ny
-    tl.store(ey_ptr + offsets, fict_val, mask=mask)
+# @triton.autotune(
+#     configs=get_boundary_configs(),
+#     key=["ny"],
+# )
+# @triton.jit
+# def _kernel_set_boundary(ey_ptr, fict_val, ny, BLOCK_SIZE: tl.constexpr):
+#     pid = tl.program_id(0)
+#     offsets = pid * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)
+#     mask = offsets < ny
+#     tl.store(ey_ptr + offsets, fict_val, mask=mask)
 
 
 @triton.autotune(
@@ -43,12 +42,15 @@ def _kernel_set_boundary(ey_ptr, fict_val, ny, BLOCK_SIZE: tl.constexpr):
     key=["nx", "ny"],
 )
 @triton.jit
-def _kernel_update_ey(ey_ptr, hz_ptr, nx, ny, BLOCK_SIZE_X: tl.constexpr, BLOCK_SIZE_Y: tl.constexpr):
-    """Update ey[1:, :] -= 0.5 * (hz[1:, :] - hz[:-1, :])"""
+def _kernel_update_ey(ey_ptr, fict_val, hz_ptr, nx, ny, BLOCK_SIZE_X: tl.constexpr, BLOCK_SIZE_Y: tl.constexpr):
+    """
+    Set ey[0, :] = fict_val
+    Update ey[1:, :] -= 0.5 * (hz[1:, :] - hz[:-1, :])
+    """
     pid_x = tl.program_id(0)
     pid_y = tl.program_id(1)
 
-    x_base = pid_x * BLOCK_SIZE_X + 1
+    x_base = pid_x * BLOCK_SIZE_X
     y_base = pid_y * BLOCK_SIZE_Y
 
     x_offsets = x_base + tl.arange(0, BLOCK_SIZE_X)
@@ -67,6 +69,9 @@ def _kernel_update_ey(ey_ptr, hz_ptr, nx, ny, BLOCK_SIZE_X: tl.constexpr, BLOCK_
     # Load current ey and update
     ey_curr = tl.load(ey_ptr + offsets_2d, mask=mask_2d, other=0.0)
     ey_new = ey_curr - 0.5 * (hz_curr - hz_prev)
+
+    # Set boundary condition
+    ey_new = tl.where(x_offsets[:, None] == 0, fict_val, ey_new)
 
     tl.store(ey_ptr + offsets_2d, ey_new, mask=mask_2d)
 
@@ -146,17 +151,14 @@ def _kernel_update_hz(hz_ptr, ex_ptr, ey_ptr, nx, ny, BLOCK_SIZE_X: tl.constexpr
 def kernel(TMAX, ex, ey, hz, _fict_):
     nx, ny = ex.shape
 
-    grid_boundary = lambda meta: (triton.cdiv(ny, meta['BLOCK_SIZE']),)
     grid_2d_ey = lambda meta: (triton.cdiv(nx - 1, meta['BLOCK_SIZE_X']), triton.cdiv(ny, meta['BLOCK_SIZE_Y']))
     grid_2d_ex = lambda meta: (triton.cdiv(nx, meta['BLOCK_SIZE_X']), triton.cdiv(ny - 1, meta['BLOCK_SIZE_Y']))
     grid_2d_hz = lambda meta: (triton.cdiv(nx - 1, meta['BLOCK_SIZE_X']), triton.cdiv(ny - 1, meta['BLOCK_SIZE_Y']))
 
+    fict_vals = _fict_.cpu().numpy()
     for t in range(TMAX):
-        # Set boundary
-        _kernel_set_boundary[grid_boundary](ey, _fict_[t].item(), ny)
-
         # Update ey
-        _kernel_update_ey[grid_2d_ey](ey, hz, nx, ny)
+        _kernel_update_ey[grid_2d_ey](ey, float(fict_vals[t]), hz, nx, ny)
 
         # Update ex
         _kernel_update_ex[grid_2d_ex](ex, hz, nx, ny)
