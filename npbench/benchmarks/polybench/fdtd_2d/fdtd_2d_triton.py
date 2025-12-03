@@ -70,39 +70,6 @@ def _kernel_update_fields_fused(
     tl.store(ey_ptr + offsets_2d, ey_new, mask=general_mask)
 
 
-@triton.autotune(
-    configs=get_2d_configs(),
-    key=["nx", "ny"],
-)
-@triton.jit
-def _kernel_update_ex(ex_ptr, hz_ptr, nx, ny, BLOCK_SIZE_X: tl.constexpr, BLOCK_SIZE_Y: tl.constexpr):
-    """Update ex[:, 1:] -= 0.5 * (hz[:, 1:] - hz[:, :-1])"""
-    pid_x = tl.program_id(0)
-    pid_y = tl.program_id(1)
-
-    # Process columns 1 to ny-1
-    x_base = pid_x * BLOCK_SIZE_X
-    y_base = pid_y * BLOCK_SIZE_Y + 1
-
-    x_offsets = x_base + tl.arange(0, BLOCK_SIZE_X)
-    y_offsets = y_base + tl.arange(0, BLOCK_SIZE_Y)
-
-    x_mask = x_offsets < nx
-    y_mask = y_offsets < ny
-
-    # Broadcast to 2D
-    offsets_2d = x_offsets[:, None] * ny + y_offsets[None, :]
-    mask_2d = x_mask[:, None] & y_mask[None, :]
-
-    # Load hz[i, j] and hz[i, j-1]
-    hz_curr = tl.load(hz_ptr + offsets_2d, mask=mask_2d, other=0.0)
-    hz_left = tl.load(hz_ptr + offsets_2d - 1, mask=mask_2d, other=0.0)
-
-    # Load current ex and update
-    ex_curr = tl.load(ex_ptr + offsets_2d, mask=mask_2d, other=0.0)
-    ex_new = ex_curr - 0.5 * (hz_curr - hz_left)
-    tl.store(ex_ptr + offsets_2d, ex_new, mask=mask_2d)
-
 
 @triton.autotune(
     configs=get_2d_configs(),
