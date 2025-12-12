@@ -3,6 +3,7 @@ import torch
 import triton
 import triton.language as tl
 import itertools
+from npbench.infrastructure.triton_framework import tl_float
 
 def get_configs():
     return [
@@ -17,7 +18,7 @@ def _kernel_mandelbrot(
       N_ptr,          # output: iteration counts
       Z_real_ptr,     # output: real part of Z
       Z_imag_ptr,     # output: imaginary part of Z
-      xmin: tl.float64, xmax: tl.float64, ymin: tl.float64, ymax: tl.float64,  # bounds
+      xmin: tl_float, xmax: tl_float, ymin: tl_float, ymax: tl_float,  # bounds
       xn, yn,         # grid size
       maxiter,
       horizon,
@@ -39,8 +40,8 @@ def _kernel_mandelbrot(
     C_real = x_coords[None, :]  # Broadcast x across rows
     C_imag = y_coords[:, None]  # Broadcast y across columns
 
-    Z_real = tl.zeros((BLOCK_SIZE_Y, BLOCK_SIZE_X), dtype=tl.float64)
-    Z_imag = tl.zeros((BLOCK_SIZE_Y, BLOCK_SIZE_X), dtype=tl.float64)
+    Z_real = tl.zeros((BLOCK_SIZE_Y, BLOCK_SIZE_X), dtype=tl_float)
+    Z_imag = tl.zeros((BLOCK_SIZE_Y, BLOCK_SIZE_X), dtype=tl_float)
 
     N_out = tl.zeros((BLOCK_SIZE_Y, BLOCK_SIZE_X), dtype=tl.int64)
 
@@ -69,8 +70,12 @@ def mandelbrot(xmin, xmax, ymin, ymax, xn, yn, maxiter, horizon=2.0):
     # no need for the following as it can be computed inside the kernel: C = torch.Tensor(X + Y[:, None] * 1j)
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     N = torch.zeros((yn, xn), dtype=torch.int64, device=device)
-    Z_real = torch.zeros((yn, xn), dtype=torch.float64, device=device)
-    Z_imag = torch.zeros((yn, xn), dtype=torch.float64, device=device)
+    if tl_float == tl.float32:
+        dtype = torch.float32
+    else:
+        dtype = torch.float64
+    Z_real = torch.zeros((yn, xn), dtype=dtype, device=device)
+    Z_imag = torch.zeros((yn, xn), dtype=dtype, device=device)
 
     grid = lambda meta: (
         triton.cdiv(xn, meta['BLOCK_SIZE_X']),

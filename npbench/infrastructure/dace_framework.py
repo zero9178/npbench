@@ -320,6 +320,7 @@ class DaceFramework(Framework):
     def set_datatype(self, datatype: Union[Literal['float32'], Literal['float64'], None]):
         # We might get None here if no datatype is specified. This is sad since we cannot know the exact datatype here
         # and we are relying on the fact that frameworks have their default datatypes set to float32.
+        super().set_datatype(datatype)
         global dc_float, dc_complex_float
         from dace import float32, float64, complex64, complex128
         dc_float = float64 if datatype == 'float64' else float32
