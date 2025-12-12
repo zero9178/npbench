@@ -13,7 +13,7 @@ def generate_config():
         if m != 128 or n != 128
     ]
 
-@triton.autotune(configs=generate_config(), key=["N", "M"])
+@triton.autotune(configs=generate_config(), key=["N", "M"], cache_results=True)
 @triton.jit
 def _kernel_mean_cols(
     data,
@@ -37,7 +37,7 @@ def _kernel_mean_cols(
     partial = tl.sum(vals, axis=0) / N
     tl.atomic_add(out_mean + cols, partial, mask=cols < M)
 
-@triton.autotune(configs=generate_config(), key=["N", "M"])
+@triton.autotune(configs=generate_config(), key=["N", "M"], cache_results=True)
 @triton.jit
 def _kernel_center_cols(
     data, mean,

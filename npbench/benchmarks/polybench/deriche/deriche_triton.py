@@ -10,6 +10,7 @@ import torch
         for nw in [1, 2, 4, 8]
     ],
     key=["M", "N"],
+    cache_results=True
 )
 @triton.jit
 def deriche_cols_forward(
@@ -48,6 +49,7 @@ def deriche_cols_forward(
         for nw in [1, 2, 4, 8]
     ],
     key=["M", "N"],
+    cache_results=True
 )
 @triton.jit
 def deriche_cols_backward(
@@ -84,6 +86,7 @@ def deriche_cols_backward(
         for nw in [1, 2, 4, 8]
     ],
     key=["M", "N"],
+    cache_results=True
 )
 @triton.jit
 def deriche_rows_forward(
@@ -122,6 +125,7 @@ def deriche_rows_forward(
         for nw in [1, 2, 4, 8]
     ],
     key=["M", "N"],
+    cache_results=True
 )
 @triton.jit
 def deriche_rows_backward(

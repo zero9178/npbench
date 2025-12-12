@@ -10,7 +10,7 @@ def get_configs():
         ) for bx, by, w in itertools.product([4, 8, 16, 32], [4, 8, 16], [1, 2, 4, 8])
     ]
 
-@triton.autotune(configs=get_configs(), key=["xn", "yn", "maxiter"])
+@triton.autotune(configs=get_configs(), key=["xn", "yn", "maxiter"], cache_results=True)
 @triton.jit
 def _kernel_mandelbrot(
       N_ptr, 

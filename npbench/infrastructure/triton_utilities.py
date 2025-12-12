@@ -384,6 +384,7 @@ def kernel_compute_stddev(mean,  # (N,)
         # triton.Config({'BLOCK_SIZE_M': 16, 'BLOCK_SIZE_N': 16, 'BLOCK_SIZE_K': 16}),
     ],
     key=['M', 'N', 'K'],
+    cache_results=True
 )
 @triton.jit
 def matmul_kernel_float64(
@@ -488,7 +489,8 @@ def matmul_float64(a: torch.Tensor, b: torch.Tensor):
         # triton.Config({'BLOCK_SIZE_M': 128, 'BLOCK_SIZE_N': 32, 'BLOCK_SIZE_K': 64, 'GROUP_SIZE_M': 8}, num_stages=4,
         #               num_warps=4)
     ],
-    key=["M", "N", "K"]
+    key=["M", "N", "K"],
+    cache_results=True
 )
 @triton.jit
 def matmul_kernel_float32(
