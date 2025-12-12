@@ -24,31 +24,33 @@ if __name__ == "__main__":
             mode,
             MIN(time) as triton_time
         FROM results
-        WHERE framework = 'triton' AND validated = 1
+        WHERE framework = 'triton'
         GROUP BY benchmark, preset, mode
     ),
     best_non_triton AS (
-        SELECT
-            benchmark,
-            preset,
-            mode,
-            MIN(time) as best_time
-        FROM results
-        WHERE framework != 'triton' AND validated = 1
-        GROUP BY benchmark, preset, mode
+        SELECT r.benchmark,
+               r.preset,
+               r.mode,
+               r.framework,
+               r.time,
+               ROW_NUMBER() OVER (PARTITION BY r.benchmark, r.preset, r.mode ORDER BY r.time) as rn
+        FROM results r
+        WHERE r.framework != 'triton'
     )
     SELECT
         t.benchmark,
         t.preset,
         t.mode,
         t.triton_time,
-        b.best_time as best_non_triton_time,
-        b.best_time / t.triton_time as speedup
+        b.time                 as best_non_triton_time,
+        b.framework            as best_framework,
+        b.time / t.triton_time as speedup
     FROM triton_times t
     JOIN best_non_triton b
         ON t.benchmark = b.benchmark
         AND t.preset = b.preset
         AND t.mode = b.mode
+            AND b.rn = 1
     ORDER BY t.benchmark
     """
 
@@ -66,10 +68,12 @@ if __name__ == "__main__":
     for benchmark in benchmarks:
         bench_data = data[data['benchmark'] == benchmark]
         speedup = bench_data['speedup'].values[0]
+        best_framework = bench_data['best_framework'].values[0]
 
         results.append({
             'benchmark': benchmark,
-            'speedup': speedup
+            'speedup': speedup,
+            'best_framework': best_framework
         })
 
     results_df = pd.DataFrame(results)
@@ -78,16 +82,30 @@ if __name__ == "__main__":
     results_df = results_df.sort_values('speedup', ascending=False).reset_index(drop=True)
     benchmarks = results_df['benchmark'].tolist()
 
+    # Define colors for each framework (matching the benchmark_grid.pdf)
+    framework_colors = {
+        'cupy': '#17becf',  # cyan
+        'dace_cpu': '#1f77b4',  # dark blue
+        'dace_gpu': '#9467bd',  # purple
+        'numba': '#1f77b4',  # dark blue
+        'pythran': '#2ca02c',  # teal/green
+        'triton': '#ff7f0e',  # orange
+        'jax': '#d62728',  # red
+        'numpy': '#999999',  # gray
+    }
+
     # Create bar plot
     fig, ax = plt.subplots(figsize=(16, 8))
 
     x = np.arange(len(benchmarks))
     speedups = results_df['speedup'].values
+    best_frameworks = results_df['best_framework'].values
 
     # Create bars
     bottoms = []
     heights = []
-    for speedup in speedups:
+    colors = []
+    for speedup, framework in zip(speedups, best_frameworks):
         # Bars grow from baseline (y=1)
         # Speedup > 1: bar grows upward from 1 (triton is faster)
         # Speedup < 1: bar grows downward from 1 (triton is slower)
@@ -97,9 +115,10 @@ if __name__ == "__main__":
         else:
             bottoms.append(speedup)
             heights.append(1 - speedup)
+        colors.append(framework_colors.get(framework, '#999999'))
 
     # Plot bars
-    ax.bar(x, heights, bottom=bottoms, label='Triton', color='#999999')
+    ax.bar(x, heights, bottom=bottoms, color=colors)
 
     # Add horizontal line at y=1 (baseline: triton == best non-triton)
     ax.axhline(y=1, color='black', linestyle='--', linewidth=1, alpha=0.5)
@@ -113,7 +132,14 @@ if __name__ == "__main__":
 
     ax.set_xticks(x)
     ax.set_xticklabels(benchmarks, rotation=45, ha='right')
-    ax.legend(loc='upper left')
+
+    # Create legend with framework colors
+    from matplotlib.patches import Patch
+
+    legend_elements = [Patch(facecolor=framework_colors[fw], label=fw)
+                       for fw in ['cupy', 'dace_gpu', 'jax', 'numpy']]
+    ax.legend(handles=legend_elements, loc='upper left')
+
     ax.grid(axis='y', alpha=0.3, linestyle='--', linewidth=0.5)
 
     # Use log scale for y-axis to better show both speedups and slowdowns
