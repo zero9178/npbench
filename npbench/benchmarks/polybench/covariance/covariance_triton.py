@@ -26,6 +26,7 @@ def get_mean_configs():
 @triton.autotune(
   configs=get_mean_configs(),
   key=["M", "N"],
+  cache_results=True
 )
 @triton.jit
 def _kernel_mean(
@@ -53,6 +54,7 @@ def _kernel_mean(
 @triton.autotune(
   configs=get_mean_configs(),
   key=["M", "N"],
+  cache_results=True
 )
 @triton.jit
 def _kernel_center(

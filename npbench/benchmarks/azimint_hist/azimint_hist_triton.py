@@ -16,6 +16,7 @@ def get_configs():
 @triton.autotune(
     configs=get_configs(),
     key=["N", "npt"],
+    cache_results=True,
 )
 @triton.jit
 def azimint_hist_kernel(
@@ -60,6 +61,7 @@ def azimint_hist_kernel(
 @triton.autotune(
     configs=get_configs(),
     key=["npt"],
+    cache_results=True,
 )
 @triton.jit
 def azimint_div_kernel(

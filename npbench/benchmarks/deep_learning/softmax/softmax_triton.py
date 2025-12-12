@@ -9,7 +9,7 @@ like we had X*H*SM rows of SM elements to process.
 """
 @triton.autotune(configs=[
     triton.Config({}, num_warps=w) for w in [1,2,4,8]
-], key=['n_rows', 'n_cols'])
+], key=['n_rows', 'n_cols'], cache_results=True)
 @triton.jit
 def _kernel(x_ptr, n_rows, n_cols, BLOCK_SIZE:tl.constexpr):
     row_idx = tl.program_id(0)

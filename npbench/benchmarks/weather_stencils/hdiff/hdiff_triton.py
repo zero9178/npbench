@@ -9,6 +9,7 @@ import itertools
         for b, w in itertools.product([8, 16, 32, 64, 128, 256], [1, 2, 4, 8])
     ],
     key=['I', 'J', 'K'],
+    cache_results=True
 )
 @triton.jit
 def hdiff_kernel(

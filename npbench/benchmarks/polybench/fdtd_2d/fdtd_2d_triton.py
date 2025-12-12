@@ -27,6 +27,7 @@ def get_2d_configs():
 @triton.autotune(
     configs=get_2d_configs(),
     key=["nx", "ny"],
+    cache_results=True
 )
 @triton.jit
 def _kernel_update_fields_fused(
@@ -74,6 +75,7 @@ def _kernel_update_fields_fused(
 @triton.autotune(
     configs=get_2d_configs(),
     key=["nx", "ny"],
+    cache_results=True
 )
 @triton.jit
 def _kernel_update_hz(hz_ptr, ex_ptr, ey_ptr, nx, ny, BLOCK_SIZE_X: tl.constexpr, BLOCK_SIZE_Y: tl.constexpr):
