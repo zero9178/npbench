@@ -4,8 +4,9 @@ pandas==2.3.3
 pygount==3.1.0
 scipy==1.16.3
 triton==3.5.1
-dace @ git+https://github.com/spcl/dace.git@7f0fc9114dad049ebc5776d036f7110efffaaf85
+dace @ git+https://github.com/zero9178/dace.git@252024130001226a155e867ac822a094bebd3ce4
+--extra-index-url https://download.pytorch.org/whl/cu130
 torch==2.9.1
-cupy-cuda12x==13.6.0
-jax[cuda12]==0.7.1
-numba-cuda[cu12]==0.21.2
+cupy-cuda13x==13.6.0
+jax[cuda13]==0.8.1
+numba-cuda[cu13]==0.21.2

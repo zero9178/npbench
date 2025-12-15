@@ -5,11 +5,11 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "cupy-cuda12x==13.6.0",
+    "cupy-cuda13x==13.6.0",
     "dace",
-    "jax[cuda12]==0.7.1",
+    "jax[cuda13]==0.8.1",
     "matplotlib==3.10.7",
-    "numba-cuda[cu12]==0.21.2",
+    "numba-cuda[cu13]==0.21.2",
     "numpy==2.3.5",
     "pandas==2.3.3",
     "pygount==3.1.0",
@@ -19,4 +19,4 @@ dependencies = [
 ]
 
 [tool.uv.sources]
-dace = { git = "https://github.com/spcl/dace.git", rev = "7f0fc9114dad049ebc5776d036f7110efffaaf85" }
+dace = { git = "https://github.com/zero9178/dace.git", rev = "252024130001226a155e867ac822a094bebd3ce4" }
