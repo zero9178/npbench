@@ -12,7 +12,7 @@ def get_autotune_config():
     ]
 
 
-@triton.autotune(configs=get_autotune_config(), key=["H", "W"])
+@triton.autotune(configs=get_autotune_config(), key=["H", "W"], cache_results=True, )
 @triton.jit
 def build_b_kernel(
     u_ptr,
@@ -73,7 +73,7 @@ def build_b_kernel(
     tl.store(b_ptr + center_ptr, result, mask=mask)
 
 
-@triton.autotune(configs=get_autotune_config(), key=["H", "W"])
+@triton.autotune(configs=get_autotune_config(), key=["H", "W"], cache_results=True, )
 @triton.jit
 def pressure_poisson_kernel(
     p_new_ptr,
@@ -137,7 +137,7 @@ def pressure_poisson_kernel(
     tl.store(p_new_ptr + (pid_y[:, None] * W + pid_x[None, :]), result, mask=mask)
 
 
-@triton.autotune(configs=get_autotune_config(), key=["H", "W"])
+@triton.autotune(configs=get_autotune_config(), key=["H", "W"], cache_results=True, )
 @triton.jit
 def update_uv_kernel(
     u_new_ptr,

@@ -9,6 +9,7 @@ import torch
         for nw in [1, 2, 4, 8]
     ],
     key=["I", "J", "K"],
+    cache_results=True
 )
 @triton.jit
 def vadv_kernel(

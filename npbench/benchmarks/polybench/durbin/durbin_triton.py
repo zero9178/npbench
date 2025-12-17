@@ -11,6 +11,7 @@ import torch
         for bs, nw in itertools.product([64, 128, 256, 512], [1, 2, 4, 8])
     ],
     key=["N"],
+    cache_results=True
 )
 @triton.jit
 def durbin_kernel(

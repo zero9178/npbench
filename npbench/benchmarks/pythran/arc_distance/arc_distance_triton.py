@@ -8,7 +8,8 @@ from triton.language.extra import libdevice
         configs=[
             triton.Config({'BLOCK_SIZE': block_size}) for block_size in [32, 64, 128, 256, 512]
         ],
-        key=['N']
+        key=['N'],
+        cache_results=True
 )
 @triton.jit
 def _kernel(theta_1, phi_1, theta_2, phi_2, distances, N: tl.constexpr, BLOCK_SIZE: tl.constexpr):

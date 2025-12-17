@@ -41,6 +41,7 @@ class TritonFramework(Framework):
         return f"__npb_result = __npb_impl({self.arg_str(bench, impl)}); torch.cuda.synchronize()"
 
     def set_datatype(self, datatype: Union[Literal["float32"], Literal["float64"]]):
+        super().set_datatype(datatype)
         # We might get None here if no datatype is specified. This is sad since we cannot know the exact datatype here
         # and we are relying on the fact that frameworks have their default datatypes set to float32.
         global tl_float

@@ -17,6 +17,7 @@ def get_conv2d_configs():
 @triton.autotune(
     configs=get_conv2d_configs(),
     key=["C_in", "C_out", "K"],
+    cache_results=True
 )
 @triton.jit
 def _kernel_conv2d(
