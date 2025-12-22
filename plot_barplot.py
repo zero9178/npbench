@@ -1,12 +1,12 @@
 import math
+
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
-import matplotlib
-# matplotlib.rcParams['text.usetex'] = True  # Disabled to avoid LaTeX issues
 
 from npbench.infrastructure import utilities as util
 
+# matplotlib.rcParams['text.usetex'] = True  # Disabled to avoid LaTeX issues
 
 if __name__ == "__main__":
     preset = 'paper'
@@ -17,69 +17,51 @@ if __name__ == "__main__":
 
     # SQL query to get triton speedup relative to best non-triton framework
     triton_speedup_query = """
-    WITH triton_times AS (
-        SELECT
-            benchmark,
-            preset,
-            mode,
-            MIN(time) as triton_time
-        FROM results
-        WHERE framework = 'triton'
-        GROUP BY benchmark, preset, mode
-    ),
-    best_non_triton AS (
-        SELECT r.benchmark,
-               r.preset,
-               r.mode,
-               r.framework,
-               r.time,
-               ROW_NUMBER() OVER (PARTITION BY r.benchmark, r.preset, r.mode ORDER BY r.time) as rn
-        FROM results r
-        WHERE r.framework != 'triton'
-    )
-    SELECT
-        t.benchmark,
-        t.preset,
-        t.mode,
-        t.triton_time,
-        b.time                 as best_non_triton_time,
-        b.framework            as best_framework,
-        b.time / t.triton_time as speedup
-    FROM triton_times t
-    JOIN best_non_triton b
-        ON t.benchmark = b.benchmark
-        AND t.preset = b.preset
-        AND t.mode = b.mode
-            AND b.rn = 1
-    ORDER BY t.benchmark
-    """
+                           -- Result with most recent timestamp
+                           WITH recent_results AS (SELECT r.benchmark, r.framework, r.preset, r.details, r.time
+                                                   FROM results r
+                                                   WHERE timestamp == (SELECT MAX(timestamp)
+                                                                       FROM results q
+                                                                       WHERE r.benchmark = q.benchmark
+                                                                         AND r.framework = q.framework
+                                                                         AND r.preset = q.preset
+                                                                         AND r.details = q.details)),
+                                -- For a given timestamp/benchmarking run, average the time.
+                                averaged AS (SELECT benchmark, framework, preset, details, AVG(time) AS time
+                                             FROM recent_results
+                                             GROUP BY benchmark, framework, preset, details),
+                                -- pick the lowest time when there are multiple variants for a framework (e.g. in dace_gpu).
+                                best_details AS (SELECT benchmark, framework, preset, MIN(time) AS time
+                                                 FROM averaged
+                                                 GROUP BY benchmark, framework, preset),
+                                -- name to use from now on, and filters for paper.
+                                final_results AS (SELECT benchmark, framework, time
+                                                  FROM best_details
+                                                  WHERE preset = 'paper'),
+                                best_non_triton AS (SELECT benchmark,
+                                                           framework,
+                                                           time,
+                                                           -- For every benchmark, ranks the performance from 1 to n.
+                                                           ROW_NUMBER() OVER (PARTITION BY benchmark ORDER BY time) AS rn
+                                                    FROM final_results
+                                                    WHERE framework <> 'triton'),
+                                triton_times as (SELECT * FROM final_results WHERE framework = 'triton')
+                           SELECT t.benchmark,
+                                  t.time          as triton_time,
+                                  b.time          as best_non_triton_time,
+                                  b.framework     as best_framework,
+                                  b.time / t.time as speedup
+                           FROM triton_times t
+                                    JOIN best_non_triton b
+                                         ON t.benchmark = b.benchmark
+                                             AND b.rn = 1
+                           ORDER BY speedup DESC
+                           """
 
-    data = pd.read_sql_query(triton_speedup_query, conn)
+    results_df = pd.read_sql_query(triton_speedup_query, conn)
 
-    # Filter by preset
-    data = data[data['preset'] == preset]
+    print(f"Total benchmarks with Triton speedup data: {len(results_df)}")
 
-    print(f"Total benchmarks with Triton speedup data: {len(data)}")
-
-    # Prepare results for plotting
-    benchmarks = sorted(data['benchmark'].unique())
-    results = []
-
-    for benchmark in benchmarks:
-        bench_data = data[data['benchmark'] == benchmark]
-        speedup = bench_data['speedup'].values[0]
-        best_framework = bench_data['best_framework'].values[0]
-
-        results.append({
-            'benchmark': benchmark,
-            'speedup': speedup,
-            'best_framework': best_framework
-        })
-
-    results_df = pd.DataFrame(results)
-
-    # Sort by speedup (highest first)
-    results_df = results_df.sort_values('speedup', ascending=False).reset_index(drop=True)
     benchmarks = results_df['benchmark'].tolist()
 
     # Define colors for each framework (matching the benchmark_grid.pdf)
