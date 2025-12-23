@@ -1,3 +1,6 @@
+import math
+from math import acos, atan, atan2, log2
+
 import matplotlib.pyplot as plt
 import numpy as np
 
@@ -92,12 +95,6 @@ def plot_roofline(peak_flops, bandwidth, points):
     # Plot the Roofline boundaries
     ax.plot(x, y, color='gray', linewidth=2)
 
-    # Add Roofline Labels
-    ax.text(2 ** -4, bandwidth * 2 ** -4 * 1.4, r'DRAM Roofline',
-            color='gray', fontsize=12, ha='left', rotation=45)
-    ax.text(2 ** 4, peak_flops * 1.2, r'FP32 Roofline',
-            color='gray', fontsize=12, va='bottom')
-
     # 3. Plot User Data Points
     # First, let's separate points by color or style if needed.
     # Here we loop through to plot markers and labels.
@@ -117,11 +114,25 @@ def plot_roofline(peak_flops, bandwidth, points):
     ax.set_xlim(2 ** -6, 2 ** 18)
     ax.set_ylim(2 ** 0, peak_flops * 4)
 
+    # Add Roofline Labels
+    p1_screen = ax.transData.transform((x[0], y[0]))
+    p2_screen = ax.transData.transform((x[1], y[1]))
+
+    dx = p2_screen[0] - p1_screen[0]
+    dy = p2_screen[1] - p1_screen[1]
+
+    angle_rad = math.atan2(dy, dx)
+    angle_deg = math.degrees(angle_rad)
+    ax.text(2 ** -4, bandwidth * 2 ** -4 * 1.4, r'DRAM Roofline',
+            color='gray', fontsize=12, ha='left', rotation=angle_deg)
+    ax.text(2 ** 4, peak_flops * 1.2, r'FP32 Roofline',
+            color='gray', fontsize=12, va='bottom')
+
     # Grid and Labels
     ax.grid(True, which="major", ls="--", alpha=.3, linewidth=.5)
     ax.set_xlabel(r'Operational Intensity [flops/byte]', fontsize=12)
     ax.set_ylabel(r'Performance [flops/cycle]', fontsize=12)
-    ax.set_title('Rooflines of select kernel implementations in Triton', fontsize=14)
+    # ax.set_title('Rooflines of select kernel implementations in Triton', fontsize=14)
 
     plt.tight_layout()
     plt.savefig("roofline.pdf", dpi=600)
