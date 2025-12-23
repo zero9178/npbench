@@ -1,9 +1,8 @@
 import matplotlib.pyplot as plt
-import matplotlib.ticker as ticker
 import numpy as np
 
 # 1. Roofline Parameters
-SMs = 86
+SMs = 84
 warp_size = 32
 num_partitions_per_sm = 4
 PEAK_FLOPS_PER_CYCLE = 2 * SMs * warp_size * num_partitions_per_sm  # FMAs per cycle
@@ -57,6 +56,13 @@ for t in range(1, TSTEPS):
 Compute: (TSTEPS - 2) * 2 * ((N - 2) * 3) = (4000 - 2) * 2 * ((32000 - 2) * 3)
 Memory: (N,) * 2 * 4 = 32000 * 2 * 4
 
+# Mandelbrot1
+
+Compute: maxiter * 10 * xn * xy = 200 * 10 * 1000 * 1000
+Note: Not counting comparisons or where operations (counting those as control operations, not FLOPS),
+only counting inner loop (e.g. not zeroing required due to implementation rather than algorithm)
+
+Memory: 4 * 3 * (yn * xn) = 4 * 3 * 1000 * 1000
 """
 
 # Format: (Algorithmic FLOPs, Data loaded from DRAM in bytes, Cycles executed, Label)
@@ -69,11 +75,12 @@ data_points = [
      'conv2d'),
     ((4000 - 2) * 2 * ((32000 - 2) * 3), 32000 * 2 * 4, 15798713,
      'jacobi_1d'),
+    (200 * 10 * 1000 * 1000, 4 * 3 * 1000 * 1000, 212500,
+     'mandelbrot1'),
 ]
 
 
 def plot_roofline(peak_flops, bandwidth, points):
-
     # Create x-axis range (logarithmic)
     x = np.logspace(-6, 18, 1000, base=2)
     # Calculate y-axis values: min(Peak, Bandwidth * Intensity)
