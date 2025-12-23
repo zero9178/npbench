@@ -102,6 +102,7 @@ def plot_roofline(peak_flops, bandwidth, points):
     for flops, data_loaded, cycles, label in points:
         intensity = flops / data_loaded
         perf = flops / cycles
+        print(f"{label}: {perf / peak_flops * 100}% of peak performance")
         ax.scatter(intensity, perf, marker='x', s=80, zorder=3)
         # Offset label slightly to the right
         ax.text(intensity * 1.15, perf, label, fontsize=11, va='center', zorder=3)
