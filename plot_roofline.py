@@ -115,12 +115,12 @@ def plot_roofline(peak_flops, bandwidth, points):
 
     # Set limits (configurable if points fall outside)
     ax.set_xlim(2 ** -6, 2 ** 18)
-    ax.set_ylim(2 ** -3, peak_flops * 4)
+    ax.set_ylim(2 ** 0, peak_flops * 4)
 
     # Grid and Labels
     ax.grid(True, which="major", ls="--", alpha=.3, linewidth=.5)
-    ax.set_xlabel(r'$I(n)$ [flops/byte]', fontsize=12)
-    ax.set_ylabel(r'$P(n)$ [flops/cycle]', fontsize=12)
+    ax.set_xlabel(r'Operational Intensity [flops/byte]', fontsize=12)
+    ax.set_ylabel(r'Performance [flops/cycle]', fontsize=12)
     ax.set_title('Rooflines of select kernel implementations in Triton', fontsize=14)
 
     plt.tight_layout()
