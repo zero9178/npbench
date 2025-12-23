@@ -117,8 +117,8 @@ def plot_roofline(peak_flops, bandwidth, points):
     ax.set_title('Rooflines of select kernel implementations in Triton', fontsize=14)
 
     plt.tight_layout()
-    plt.show()
     plt.savefig("roofline.pdf", dpi=600)
+    plt.show()
 
 
 if __name__ == "__main__":
