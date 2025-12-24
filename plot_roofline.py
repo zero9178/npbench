@@ -11,7 +11,7 @@ num_partitions_per_sm = 4
 PEAK_FLOPS_PER_CYCLE = 2 * SMs * warp_size * num_partitions_per_sm  # FMAs per cycle
 # Identical peak performance for TF32 on an RTX5080 (easier to reach though).
 TENSOR_PEAK_FLOPS_PER_CYCLE = PEAK_FLOPS_PER_CYCLE
-BANDWIDTH_BYTES_PER_CYCLE = 960 / 2.617  # GB/s / GHz
+BANDWIDTH_BYTES_PER_CYCLE = 960 / 2.29  # GB/s / GHz
 
 """
 Cycles are always measured by nsight compute.
