@@ -1,16 +1,17 @@
 import argparse
 import math
+
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
-from matplotlib.ticker import FuncFormatter
 from matplotlib.lines import Line2D
-from scipy.stats.mstats import gmean
+from matplotlib.ticker import FuncFormatter
+
 from npbench.infrastructure import utilities as util
 
 parser = argparse.ArgumentParser()
-parser.add_argument("-r", "--rows", type=int, default=7, help="Number of rows in the grid")
-parser.add_argument("-c", "--cols", type=int, default=8, help="Number of columns in the grid")
+parser.add_argument("-r", "--rows", type=int, default=5, help="Number of rows in the grid")
+parser.add_argument("-c", "--cols", type=int, default=11, help="Number of columns in the grid")
 args = parser.parse_args()
 
 
@@ -34,7 +35,7 @@ def bootstrap_ci(data, statfunction=np.median, alpha=0.05, n_samples=300):
     return stat[nvals]
 
 
-database = r"npbench.db"
+database = r"npbench_2070.db"
 conn = util.create_connection(database)
 data = pd.read_sql_query("SELECT * FROM results", conn)
 
@@ -273,8 +274,8 @@ legend_elements.append(Line2D([0], [0], marker='x', color='w', markerfacecolor='
                               markeredgecolor='red', markersize=8, markeredgewidth=2, label='Failed to run'))
 legend_elements.append(Line2D([0], [0], color='black', marker='_', markersize=10,
                               markeredgewidth=1.5, label='95% CI'))
-legend = fig.legend(handles=legend_elements, loc='lower center', ncol=len(frmwrks) + 2,
-                    fontsize=12, bbox_to_anchor=(0.5, 0.01), frameon=True,
+legend = fig.legend(handles=legend_elements, loc='upper center', ncol=len(frmwrks) + 3,
+                    fontsize=12, bbox_to_anchor=(0.5, 0.05), frameon=True,
                     fancybox=True, shadow=True, borderpad=1)
 legend.get_frame().set_linewidth(1.5)
 legend.get_frame().set_edgecolor('gray')
