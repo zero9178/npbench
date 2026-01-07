@@ -9,8 +9,8 @@ from scipy.stats.mstats import gmean
 from npbench.infrastructure import utilities as util
 
 parser = argparse.ArgumentParser()
-parser.add_argument("-r", "--rows", type=int, default=6, help="Number of rows in the grid")
-parser.add_argument("-c", "--cols", type=int, default=9, help="Number of columns in the grid")
+parser.add_argument("-r", "--rows", type=int, default=7, help="Number of rows in the grid")
+parser.add_argument("-c", "--cols", type=int, default=8, help="Number of columns in the grid")
 args = parser.parse_args()
 
 
@@ -170,6 +170,8 @@ framework_colors = {
 }
 color_map = {fw: framework_colors.get(fw, '#808080') for fw in frmwrks}
 
+did_not_validate_colour = 'gray'
+
 for idx, benchmark in enumerate(benchmarks):
     if idx >= n_rows * n_cols:
         break
@@ -185,6 +187,7 @@ for idx, benchmark in enumerate(benchmarks):
     errors_lower = []
     errors_upper = []
     validated_list = []
+    failed_list = []
 
     for i, fw in enumerate(frmwrks):
         fw_data = bench_results[bench_results['framework'] == fw]
@@ -196,6 +199,17 @@ for idx, benchmark in enumerate(benchmarks):
             errors_lower.append(fw_data['error_lower'].values[0])
             errors_upper.append(fw_data['error_upper'].values[0])
             validated_list.append(fw_data['validated'].values[0])
+            failed_list.append(False)
+        else:
+            x_positions.append(len(labels))
+            bar_colors.append(color_map[fw])
+            labels.append(fw)
+            # Fake data
+            speedups.append(1.0)
+            errors_lower.append(0)
+            errors_upper.append(0)
+            validated_list.append(True)
+            failed_list.append(True)
 
     if speedups:
         bottoms = []
@@ -214,15 +228,22 @@ for idx, benchmark in enumerate(benchmarks):
 
         ax.yaxis.set_major_formatter(FuncFormatter(lambda y, _: f'{int(np.log10(y))}' if y > 0 else ''))
 
-        for j, (pos, speedup, validated) in enumerate(zip(x_positions, speedups, validated_list)):
-            if not validated:
+        for j, (pos, speedup, validated, failed) in enumerate(zip(x_positions, speedups, validated_list, failed_list)):
+            if failed:
                 ax.scatter(pos, speedup, marker='x', s=50, c='red', linewidths=1.5, zorder=5)
+                continue
+            if not validated:
+                ax.scatter(pos, speedup, marker='x', s=50, c=did_not_validate_colour, linewidths=1.5, zorder=5)
 
-        for j, (pos, speedup, err_low, err_up) in enumerate(zip(x_positions, speedups, errors_lower, errors_upper)):
+        for j, (pos, speedup, err_low, err_up, failed) in enumerate(zip(x_positions, speedups, errors_lower, errors_upper, failed_list)):
+            if failed:
+                continue
             ax.errorbar(pos, speedup, yerr=[[err_low], [err_up]], fmt='none',
                        ecolor='black', capsize=2, capthick=1, elinewidth=1, zorder=10)
 
-        for j, (pos, speedup) in enumerate(zip(x_positions, speedups)):
+        for j, (pos, speedup, failed) in enumerate(zip(x_positions, speedups, failed_list)):
+            if failed:
+                continue
             label_y = speedup * 1.3 if speedup >= 1 else speedup * 0.7
             if speedup < 0.1:
                 label = f'{speedup:.0e}x'
@@ -243,11 +264,13 @@ for idx, benchmark in enumerate(benchmarks):
 for idx in range(len(benchmarks), n_rows * n_cols):
     axes_flat[idx].axis('off')
 
-fig.suptitle('log10(Speedup) over NumPy by Benchmark', fontsize=16, fontweight='bold', y=0.995)
+#fig.suptitle('log10(Speedup) over NumPy by Benchmark', fontsize=16, fontweight='bold', y=0.995)
 
 legend_elements = [plt.Rectangle((0,0),1,1, facecolor=color_map[fw], label=fw) for fw in frmwrks]
+legend_elements.append(Line2D([0], [0], marker='x', color='w', markerfacecolor=did_not_validate_colour,
+                              markeredgecolor=did_not_validate_colour, markersize=8, markeredgewidth=2, label='Did not validate'))
 legend_elements.append(Line2D([0], [0], marker='x', color='w', markerfacecolor='red',
-                              markeredgecolor='red', markersize=8, markeredgewidth=2, label='Not validated'))
+                              markeredgecolor='red', markersize=8, markeredgewidth=2, label='Failed to run'))
 legend_elements.append(Line2D([0], [0], color='black', marker='_', markersize=10,
                               markeredgewidth=1.5, label='95% CI'))
 legend = fig.legend(handles=legend_elements, loc='lower center', ncol=len(frmwrks) + 2,
