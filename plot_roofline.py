@@ -68,19 +68,111 @@ only counting inner loop (e.g. not zeroing required due to implementation rather
 Memory: 4 * 3 * (yn * xn) = 4 * 3 * 1000 * 1000
 """
 
-# Format: (Algorithmic FLOPs, Data loaded from DRAM in bytes, Cycles executed, Label)
+# Format: (Algorithmic FLOPs, Data loaded from DRAM in bytes, Cycles executed (all samples), Label)
 data_points = [
-    (3200 * 4000 * 3600 * 2, (3200 * 4000 + 4000 * 3600) * 4, 4709621, 'GEMM'),
-    (2 * (11200 * 11200 * 2) + 3 * 11200, (2 * 11200 * 11200 + 11200) * 4, 2523497,
+    (3200 * 4000 * 3600 * 2, (3200 * 4000 + 4000 * 3600) * 4, [
+        4923081,
+        4923637,
+        4921209,
+        4920864,
+        4921903,
+        4921026,
+        4921400,
+        4920573,
+        4923128,
+        4921794,
+        4920865,
+        4921166,
+        4923241,
+    ], 'GEMM'),
+    (2 * (11200 * 11200 * 2) + 3 * 11200, (2 * 11200 * 11200 + 11200) * 4,
+     [
+         2523497,
+         2521589,
+         2520818,
+         2522179,
+         2529484,
+         2519252,
+         2525135,
+         2518735,
+         2521451,
+         2525665,
+         2523097,
+         2519659,
+
+     ],
      'gesummv'),
     (2 * 56 * 56 * 8 * 64 * 64 * 3 * 3,
-     ((8 * 58 * 58 * 64) + (3 * 3 * 64 * 64)) * 4, 10_958_995,
+     ((8 * 58 * 58 * 64) + (3 * 3 * 64 * 64)) * 4, [
+         10_958_995,
+         10_963_491,
+         10_961_825,
+         10_961_914,
+         10_957_871,
+         10_962_822,
+         10_958_684,
+         10_959_055,
+         10_960_442,
+         10_961_104,
+         10_961_090,
+         10_962_176,
+     ],
      'conv2d'),
-    ((4000 - 2) * 2 * ((32000 - 2) * 3), 32000 * 2 * 4, 15798713,
+    ((4000 - 2) * 2 * ((32000 - 2) * 3), 32000 * 2 * 4, [
+        15798713,
+        15790375,
+        15834113,
+        15836026,
+        15836563,
+        15837454,
+        15834644,
+        15836042,
+        15837680,
+        15836430,
+        15836542,
+        15836893,
+        15834100,
+    ],
      'jacobi_1d'),
-    (200 * 10 * 1000 * 1000, 4 * 3 * 1000 * 1000, 212500,
+    (200 * 10 * 1000 * 1000, 4 * 3 * 1000 * 1000, [
+        212500,
+        212689,
+        212723,
+        212531,
+        212419,
+        212542,
+        212524,
+        212617,
+        212705,
+        212757,
+        212622,
+        212415,
+        212561,
+    ],
      'mandelbrot1'),
 ]
+
+np.random.seed(42)
+
+
+def bootstrap_ci(data, statfunction=np.median, alpha=0.05, n_samples=300):
+    def bootstrap_ids(data, n_samples=100):
+        for _ in range(n_samples):
+            yield np.random.randint(data.shape[0], size=(data.shape[0],))
+
+    alphas = np.array([alpha / 2, 1 - alpha / 2])
+    nvals = np.round((n_samples - 1) * alphas).astype(int)
+
+    data = np.array(data)
+    if np.prod(data.shape) != max(data.shape):
+        raise ValueError("Data must be 1D")
+    data = data.ravel()
+
+    boot_indexes = bootstrap_ids(data, n_samples)
+    stat = np.asarray([statfunction(data[_ids]) for _ids in boot_indexes])
+    stat.sort(axis=0)
+
+    return stat[nvals]
 
 
 def plot_roofline(peak_flops, bandwidth, points):
@@ -100,12 +192,19 @@ def plot_roofline(peak_flops, bandwidth, points):
     # Here we loop through to plot markers and labels.
 
     for flops, data_loaded, cycles, label in points:
+        cycles = np.array(cycles)
         intensity = flops / data_loaded
-        perf = flops / cycles
-        print(f"{label}: {perf / peak_flops * 100}% of peak performance")
-        ax.scatter(intensity, perf, marker='x', s=80, zorder=3)
+        median_perf = flops / np.median(cycles)
+        ci_lower, ci_upper = bootstrap_ci(cycles)
+        err_low = median_perf - (flops / ci_upper)
+        err_up = (flops / ci_lower) - median_perf
+        print(f"{label}: {median_perf / peak_flops * 100}% of peak performance")
+
+        ax.scatter(intensity, median_perf, marker='x', s=80, zorder=3)
+        ax.errorbar(intensity, median_perf, yerr=[[err_low], [err_up]], fmt='none',
+                    ecolor='black', capsize=2, capthick=1, elinewidth=1, zorder=10)
         # Offset label slightly to the right
-        ax.text(intensity * 1.15, perf, label, fontsize=11, va='center', zorder=3)
+        ax.text(intensity * 1.15, median_perf, label, fontsize=11, va='center', zorder=3)
 
     # 5. Axis Formatting (Log Scale Base 2)
     ax.set_xscale('log', base=2)
