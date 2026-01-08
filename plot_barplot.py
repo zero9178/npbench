@@ -6,10 +6,10 @@ import pandas as pd
 
 from npbench.infrastructure import utilities as util
 
-
 # matplotlib.rcParams['text.usetex'] = True  # Disabled to avoid LaTeX issues
 
 np.random.seed(42)
+
 
 def bootstrap_ratio_ci_unpaired(num_data, denom_data, alpha=0.05, n_samples=300):
     """
@@ -65,6 +65,7 @@ if __name__ == "__main__":
                                                                          AND r.preset = q.preset
                                                                          AND r.details = q.details)),
                                 -- For a given timestamp/benchmarking run, average the time.
+                                -- TODO: SQLIte does not support median
                                 averaged AS (SELECT benchmark, framework, preset, details, AVG(time) AS median
                                              FROM recent_results
                                              GROUP BY benchmark, framework, preset, details),
@@ -144,7 +145,7 @@ if __name__ == "__main__":
     # Plot bars
     ax.bar(x, heights, bottom=bottoms, color=colors)
     for xe, benchmark, speedup, framework, details in zip(x, benchmarks, speedups, best_frameworks,
-                                                         results_df['best_details']):
+                                                          results_df['best_details']):
         triton_times = pd.read_sql_query(f"""
         WITH recent_results AS (SELECT r.benchmark, r.framework, r.preset, r.details, r.time
                                                    FROM results r
@@ -177,12 +178,22 @@ if __name__ == "__main__":
 
         ax.errorbar(xe, speedup, yerr=[[err_low], [err_up]], fmt='none',
                     ecolor='black', capsize=2, capthick=1, elinewidth=1, zorder=10)
+        label_y = speedup * 1.3 if speedup >= 1 else speedup * 0.8
+
+        # Compact scientific notation without 'x': e.g., "1.2e1"
+        exp = int(np.floor(np.log10(abs(speedup)))) if speedup != 0 else 0
+        mantissa = speedup / (10 ** exp)
+        label = f'{mantissa:.1f}e{exp}'
+        fontsize = 8
+
+        ax.text(xe, label_y, label, ha='left' if speedup >= 1 else 'right', va='bottom' if speedup >= 1 else 'top',
+                fontsize=fontsize, fontweight='bold', rotation=45)
 
     # Add horizontal line at y=1 (baseline: triton == best non-triton)
     ax.axhline(y=1, color='black', linestyle='--', linewidth=1, alpha=0.5)
 
     ax.set_xlabel('Benchmark', fontsize=12)
-    ax.set_ylabel('Triton Speedup vs Best Non-Triton Framework', fontsize=12)
+    # ax.set_ylabel('Triton Speedup vs Best Non-Triton Framework', fontsize=12)
 
     # Update title
     title = f'Triton Performance vs Best Alternative (Preset: {preset})'
