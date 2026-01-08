@@ -6,7 +6,44 @@ import pandas as pd
 
 from npbench.infrastructure import utilities as util
 
+
 # matplotlib.rcParams['text.usetex'] = True  # Disabled to avoid LaTeX issues
+
+
+def bootstrap_ratio_ci_unpaired(num_data, denom_data, alpha=0.05, n_samples=300):
+    """
+    Calculates the CI for Mean(num) / Mean(denom) assuming INDEPENDENT samples.
+    The arrays do NOT need to be the same shape.
+    """
+    # 1. Flatten and validate inputs
+    num_data = np.array(num_data).ravel()
+    denom_data = np.array(denom_data).ravel()
+
+    n_num = num_data.shape[0]
+    n_denom = denom_data.shape[0]
+
+    # 2. Calculate percentile indices
+    alphas = np.array([alpha / 2, 1 - alpha / 2])
+    nvals = np.round((n_samples - 1) * alphas).astype(int)
+
+    # 3. Generate independent resampled indices
+    # We generate a matrix of (n_samples x original_size) for vectorization
+    rng = np.random.default_rng()
+
+    # Resample Numerator
+    idx_num = rng.integers(0, n_num, size=(n_samples, n_num))
+    boot_num_means = np.mean(num_data[idx_num], axis=1)
+
+    # Resample Denominator (independently)
+    idx_denom = rng.integers(0, n_denom, size=(n_samples, n_denom))
+    boot_denom_means = np.mean(denom_data[idx_denom], axis=1)
+
+    # 4. Calculate Ratio of Means
+    stats = boot_num_means / boot_denom_means
+    stats.sort()
+
+    return stats[nvals]
+
 
 if __name__ == "__main__":
     preset = 'paper'
@@ -27,30 +64,34 @@ if __name__ == "__main__":
                                                                          AND r.preset = q.preset
                                                                          AND r.details = q.details)),
                                 -- For a given timestamp/benchmarking run, average the time.
-                                averaged AS (SELECT benchmark, framework, preset, details, AVG(time) AS time
+                                averaged AS (SELECT benchmark, framework, preset, details, AVG(time) AS median
                                              FROM recent_results
                                              GROUP BY benchmark, framework, preset, details),
                                 -- pick the lowest time when there are multiple variants for a framework (e.g. in dace_gpu).
-                                best_details AS (SELECT benchmark, framework, preset, MIN(time) AS time
+                                best_details AS (SELECT benchmark, framework, preset, details, median
                                                  FROM averaged
-                                                 GROUP BY benchmark, framework, preset),
+                                                 WHERE median == (SELECT MIN(median)
+                                                                  FROM averaged q
+                                                                  WHERE q.benchmark = averaged.benchmark
+                                                                    AND q.framework = averaged.framework
+                                                                    AND q.preset = averaged.preset)),
                                 -- name to use from now on, and filters for paper.
-                                final_results AS (SELECT benchmark, framework, time
+                                final_results AS (SELECT benchmark, framework, details, median
                                                   FROM best_details
                                                   WHERE preset = 'paper'),
                                 best_non_triton AS (SELECT benchmark,
                                                            framework,
-                                                           time,
+                                                           details,
+                                                           median,
                                                            -- For every benchmark, ranks the performance from 1 to n.
-                                                           ROW_NUMBER() OVER (PARTITION BY benchmark ORDER BY time) AS rn
+                                                           ROW_NUMBER() OVER (PARTITION BY benchmark ORDER BY median) AS rn
                                                     FROM final_results
                                                     WHERE framework <> 'triton'),
                                 triton_times as (SELECT * FROM final_results WHERE framework = 'triton')
-                           SELECT t.benchmark,
-                                  t.time          as triton_time,
-                                  b.time          as best_non_triton_time,
-                                  b.framework     as best_framework,
-                                  b.time / t.time as speedup
+                           SELECT t.benchmark         as benchmark,
+                                  b.framework         as best_framework,
+                                  b.details           as best_details,
+                                  b.median / t.median as speedup
                            FROM triton_times t
                                     JOIN best_non_triton b
                                          ON t.benchmark = b.benchmark
@@ -101,6 +142,40 @@ if __name__ == "__main__":
 
     # Plot bars
     ax.bar(x, heights, bottom=bottoms, color=colors)
+    for xe, benchmark, speedup, framework, details in zip(x, benchmarks, speedups, best_frameworks,
+                                                         results_df['best_details']):
+        triton_times = pd.read_sql_query(f"""
+        WITH recent_results AS (SELECT r.benchmark, r.framework, r.preset, r.details, r.time
+                                                   FROM results r
+                                                   WHERE timestamp == (SELECT MAX(timestamp)
+                                                                       FROM results q
+                                                                       WHERE r.benchmark = q.benchmark
+                                                                         AND r.framework = q.framework
+                                                                         AND r.preset = q.preset
+                                                                         AND r.details = q.details)
+                                                                         AND r.benchmark = '{benchmark}'
+                                                                         AND preset = 'paper')
+        SELECT time FROM recent_results WHERE framework = 'triton'
+        """, conn)['time'].values
+        other_times = pd.read_sql_query(f"""
+                WITH recent_results AS (SELECT r.benchmark, r.framework, r.preset, r.details, r.time
+                                                           FROM results r
+                                                           WHERE timestamp == (SELECT MAX(timestamp)
+                                                                               FROM results q
+                                                                               WHERE r.benchmark = q.benchmark
+                                                                                 AND r.framework = q.framework
+                                                                                 AND r.preset = q.preset
+                                                                                 AND r.details = q.details)
+                                                                                 AND r.benchmark = '{benchmark}'
+                                                                                 AND preset = 'paper')
+                SELECT time FROM recent_results WHERE framework = '{framework}' AND details = '{details}'
+                """, conn)['time'].values
+        ci_lower, ci_upper = bootstrap_ratio_ci_unpaired(other_times, triton_times)
+        err_low = speedup - ci_lower
+        err_up = ci_upper - speedup
+
+        ax.errorbar(xe, speedup, yerr=[[err_low], [err_up]], fmt='none',
+                    ecolor='black', capsize=2, capthick=1, elinewidth=1, zorder=10)
 
     # Add horizontal line at y=1 (baseline: triton == best non-triton)
     ax.axhline(y=1, color='black', linestyle='--', linewidth=1, alpha=0.5)
