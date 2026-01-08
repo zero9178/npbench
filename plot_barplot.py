@@ -50,7 +50,7 @@ if __name__ == "__main__":
     preset = 'paper'
 
     # create a database connection
-    database = r"npbench.db"
+    database = r"npbench_5080.db"
     conn = util.create_connection(database)
 
     # SQL query to get triton speedup relative to best non-triton framework
@@ -196,7 +196,7 @@ if __name__ == "__main__":
 
     legend_elements = [Patch(facecolor=framework_colors[fw], label=fw)
                        for fw in ['cupy', 'dace_gpu', 'jax', 'numpy']]
-    ax.legend(handles=legend_elements, loc='upper left')
+    ax.legend(handles=legend_elements, loc='upper right')
 
     ax.grid(axis='y', alpha=0.3, linestyle='--', linewidth=0.5)
 
