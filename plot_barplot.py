@@ -9,6 +9,7 @@ from npbench.infrastructure import utilities as util
 
 # matplotlib.rcParams['text.usetex'] = True  # Disabled to avoid LaTeX issues
 
+np.random.seed(42)
 
 def bootstrap_ratio_ci_unpaired(num_data, denom_data, alpha=0.05, n_samples=300):
     """
